@@ -5,9 +5,13 @@
 
 static const char *TAG = "NameCardKnot";
 
-void app_entry() {
+static void loop(void *args) {
     while (true) {
         ESP_LOGI(TAG, "HELLO!");
-        vTaskDelay(pdTICKS_TO_MS(1000));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
+
+void app_entry() {
+    xTaskCreate(loop, "loop", 2048, nullptr, 3, nullptr);
 }
