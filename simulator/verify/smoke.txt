@@ -1,0 +1,5 @@
+# Smoke test: let the app draw its first frame, then capture it.
+# Run: ./run.sh simverify simulator/verify/smoke.txt
+settle
+capture simulator/verify/out/smoke.jpg
+quit
