@@ -1,0 +1,18 @@
+# Shared application logic.
+# Discovered as a single component via EXTRA_COMPONENT_DIRS on device and via
+# the idf_component_register() shim in simulator/CMakeLists.txt on the host.
+#
+# SRCS is collected recursively so new .c/.cpp files under app/ are picked up
+# automatically. CONFIGURE_DEPENDS is unusable here because ESP-IDF evaluates
+# this file in cmake script mode (cmake -P) for requirement extraction, where it
+# is invalid — so re-run cmake (or delete build/) after adding/removing files.
+file(GLOB_RECURSE APP_SRCS
+     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
+     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# app/test/ holds host-only unit tests with their own main() (app/test/run.sh).
+list(FILTER APP_SRCS EXCLUDE REGEX "/test/")
+
+idf_component_register(
+    SRCS ${APP_SRCS}
+    INCLUDE_DIRS "."
+    REQUIRES esp_timer nvs_flash)

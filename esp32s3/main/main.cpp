@@ -1,8 +1,9 @@
 #include <cassert>
 #include "esp_log.h"
+#include "NameCardKnot.hpp"
 
 static const char *TAG = "main";
 
 extern "C" void app_main() {
-    ESP_LOGI(TAG, "HELLO!");
+    app_entry();
 }
