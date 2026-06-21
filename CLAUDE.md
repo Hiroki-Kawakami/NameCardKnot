@@ -3,8 +3,11 @@
 Firmware for an M5PaperS3-class name-card device: an **ESP32-S3 + 960×540
 grayscale EPD** (`paper_s3` board). Built on the reusable **`esp-devkit`** BSP /
 simulator infrastructure, with a host SDL simulator so UI/app logic can be
-developed and verified without hardware. Early stage — the BSP display + simulator
-+ sim harness are in place; device drivers and the app itself are mostly stubs.
+developed and verified without hardware. Early stage — the BSP display +
+simulator + sim harness are in place, and the **device EPD + touch paths are
+implemented** (ED047TC1 panel over the ESP32-S3 i80 bus, full-screen blocking
+refresh; GT911 touch over I2C via the in-tree `gt911` polling driver).
+The app itself is still a stub.
 
 > **Keep the docs current.** When you change the build flow, the BSP surface
 > (`bsp_*`), the simulator backend, add a board/target, or hit a non-obvious
@@ -50,9 +53,10 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     inc/              #     public API: bsp.h, bsp_types.h
     inc_private/      #     internal vtables: bsp_display.h, bsp_touch.h
     src/              #     shared dispatch: bsp_display.c, bsp_touch.c
-    devices/          #     DEVICE chip drivers (gt911 — stub)
+    devices/          #     DEVICE chip drivers: ed047tc1 (EPD panel) + gt911 (I2C touch)
+    driver/           #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE waveform)
     simulator/        #     SIM SDL backend: sdl_panel.{c,h}
-    boards/paper_s3/  #     per-board bring-up: paper_s3.c (device, stub) + paper_s3_sim.c (sim)
+    boards/paper_s3/  #     per-board bring-up: paper_s3.c + paper_s3_panel.c (device) + paper_s3_sim.c (sim)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
   sim_harness/        #   SIM-only scripted UI verification core (portable, DI) → docs/testing.md
 ```
@@ -69,6 +73,16 @@ one `simulator` executable (so includes are effectively global; `REQUIRES` are
 ignored). A component that differs per target branches on `ESP_PLATFORM` (set only
 under ESP-IDF) inside its own `CMakeLists.txt` — see `bsp/CMakeLists.txt`. New
 simulator component → add it to `SIMULATOR_COMPONENTS` in `simulator/CMakeLists.txt`.
+
+On **device**, `esp32s3/CMakeLists.txt` lists `../esp-devkit/bsp` in
+`EXTRA_COMPONENT_DIRS` (only `bsp` — `idf_compat`/`sim_harness` are host-only), and
+any component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES` (e.g.
+`app/CMakeLists.txt`). The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
+and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is the
+in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
+`PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for
+`i2c_master`/`gpio`. The board (`paper_s3_panel.c`) brings up the shared I2C bus
+and registers the touch provider.
 
 ## BSP — the display/touch seam (`bsp_*`)
 
