@@ -1,8 +1,7 @@
 #include "NameCardKnot.hpp"
-#include "sdl_panel.h"
 #include "sim_harness.h"
+#include "lvgl.hpp"
 #include <cstdlib>
-#include <unistd.h>
 
 extern "C" int main(void) {
     app_entry();
@@ -12,14 +11,6 @@ extern "C" int main(void) {
     // frames. NULL (env unset) is a no-op interactive run. sdl_panel registered
     // its input/capture callbacks during bsp_init.
     sim_harness_start(getenv("SIMULATOR_SCRIPT"));
-
-    while (true) {
-        sdl_panel_pump_input();
-        sdl_panel_present();
-        // No LVGL yet, so the UI is always "idle"; once LVGL is added pass e.g.
-        // lv_anim_count_running() == 0 here for `settle`.
-        if (!sim_harness_frame(true)) break;
-        usleep(1000);
-    }
+    lvgl_sim_loop(sim_harness_frame);
     return sim_harness_exit_code();
 }

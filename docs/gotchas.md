@@ -37,3 +37,39 @@ hit new ones.
   does the SDL render. Likewise `bsp_touch_read` (background task) must not call
   SDL — it only copies a snapshot the main thread maintains in
   `sdl_panel_pump_input()`.
+
+## LVGL / ui_framework
+
+- **LVGL runs on a different thread than your app task.** On device, esp_lvgl_port
+  owns an LVGL task; on the simulator, `lv_timer_handler()` runs inside
+  `lvgl_sim_loop()` on the main thread (`simulator/main/main.cpp`) while the app's
+  FreeRTOS task is a separate pthread. Two portable ways to mutate widgets from
+  another task: take LVGL's global lock with **`lv_lock()`/`lv_unlock()`** (works on
+  both targets because `LV_USE_OS` is set — FreeRTOS on device, PThread on the sim —
+  so it serialises against the timer handler), or marshal onto the LVGL context with
+  **`lv_async_call()`** (from `lvgl.hpp`). `ScreenManager` uses the latter (see
+  `retire()`), and `app_entry()` loads its first screen via `lv_async_call`.
+  (`lvgl_port_lock()` is the device-only equivalent of `lv_lock`; prefer `lv_lock`
+  in code shared with the simulator.)
+- **`lvgl_port_init()` is the one init call on both targets.** Device gets the real
+  `esp_lvgl_port`; the simulator gets a same-signature shim in `lvgl.cpp`
+  (`#ifndef ESP_PLATFORM`) that does `lv_init()` + an SDL tick. So app/board code
+  calls `lvgl_port_init(&cfg)` identically — the per-target split lives in the
+  shim, not in `#ifdef`s scattered through the app.
+- **The BSP↔LVGL binding + EPD policy are app-side, not in `ui_framework`.**
+  `ui_framework` is panel-agnostic (LVGL port + UI utilities only). The
+  `lv_display`/`lv_indev`, flush callback, buffer, and EPD refresh policy live in
+  `app/NameCardKnot.cpp` — written against `bsp_*` + `lvgl` so the one file serves
+  both targets. Don't push panel assumptions back down into the shared component.
+- **EPD repaint is decided at flush time, not draw time.** The app's flush_cb blits
+  each area to GRAM (`bsp_display_draw_bitmap`), accumulates the dirty rect, and on
+  the *last* partial flush calls `bsp_display_refresh(dirty, mode)`. The mode is the
+  app's own policy: `epd_set_default_refresh_mode()` (standing) /
+  `epd_set_next_refresh_mode()` (overrides the next refresh) in `NameCardKnot.hpp`.
+- **Two LVGL builds, one API.** Device pulls LVGL + esp_lvgl_port as managed
+  components (esp_lvgl_port declared in `ui_framework/idf_component.yml`; configured
+  via sdkconfig Kconfig); the simulator `FetchContent`s upstream LVGL
+  (`release/v9.5`) configured by `ui_framework/sim/lv_conf.h`. Only the major.minor
+  need match — a sim `lv_conf.h` from a slightly newer 9.x is fine (LVGL fills
+  unknown knobs with defaults). Override the sim config dir with the
+  `UI_FRAMEWORK_LV_CONF_DIR` CMake cache var before configuring.

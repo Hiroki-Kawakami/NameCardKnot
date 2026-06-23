@@ -72,10 +72,12 @@ function(idf_component_set_property)
 endfunction()
 
 # Simulator components.
+set(UI_FRAMEWORK_LV_CONF_DIR ${CMAKE_CURRENT_SOURCE_DIR}/main)
 set(SIMULATOR_COMPONENTS
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/idf_compat
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/sim_harness
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/bsp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/ui_framework
     ${CMAKE_CURRENT_SOURCE_DIR}/../app)
 foreach(comp ${SIMULATOR_COMPONENTS})
     get_filename_component(name "${comp}" NAME)

@@ -1,36 +1,118 @@
 #include "NameCardKnot.hpp"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
 #include "bsp.h"
+#include "lvgl.hpp"
+#include "screen_manager.hpp"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include <assert.h>
 
 static const char *TAG = "NameCardKnot";
 
-static void loop(void *args) {
-    auto display_size = bsp_display_get_size();
-    size_t buf_size = display_size.width * display_size.height * bsp_pixel_format_bytes(bsp_display_get_pixel_format());
-    uint8_t *buf = (uint8_t*)malloc(buf_size);
-    for (int y = 0; y < display_size.height; y++) {
-        for (int x = 0; x < display_size.width; x++) {
-            int band = x * 16 / display_size.width; // 0..15
-            buf[y * display_size.width + x] = (uint8_t)(band * 0xFF / 15);
-            // buf[y * display_size.width + x] = band % 2 ? 0xff : 0;
-        }
-    }
-    bsp_display_draw_bitmap({0, 0, display_size.width, display_size.height}, buf);
-    bsp_display_refresh({0, 0, display_size.width, display_size.height}, BSP_EPD_MODE_QUALITY);
-    free(buf);
+static lv_display_t *s_disp;
+static uint8_t *s_buf;
+static bool s_dirty_valid;
+static int s_dx1, s_dy1, s_dx2, s_dy2;
+static bsp_epd_mode_t s_default_mode, s_next_mode;
 
-    while (true) {
-        bsp_touch_point_t point;
-        if (bsp_touch_read(&point, 1)) {
-            ESP_LOGI(TAG, "touch: %d,%d", point.x, point.y);
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
+static void dirty_extend(int x1, int y1, int x2, int y2) {
+    if (!s_dirty_valid) {
+        s_dx1 = x1; s_dy1 = y1; s_dx2 = x2; s_dy2 = y2;
+        s_dirty_valid = true;
+        return;
     }
+    if (x1 < s_dx1) s_dx1 = x1;
+    if (y1 < s_dy1) s_dy1 = y1;
+    if (x2 > s_dx2) s_dx2 = x2;
+    if (y2 > s_dy2) s_dy2 = y2;
+}
+
+static void dirty_refresh(bsp_epd_mode_t mode) {
+    bsp_rect_t rect = s_dirty_valid
+        ? (bsp_rect_t){ { s_dx1, s_dy1 }, { s_dx2 - s_dx1 + 1, s_dy2 - s_dy1 + 1 } }
+        : (bsp_rect_t){ { 0, 0 }, bsp_display_get_size() };
+    bsp_display_refresh(rect, mode);
+    s_dirty_valid = false;
+}
+
+void epd_set_default_refresh_mode(bsp_epd_mode_t mode) {
+    s_default_mode = mode;
+}
+
+void epd_set_next_refresh_mode(bsp_epd_mode_t mode) {
+    s_next_mode = mode;
+}
+
+class HomeScreen : public Screen {
+public:
+    void build() override {
+        lv_obj_t *label = lv_label_create(root_);
+        lv_label_set_text(label, "NameCardKnot");
+        lv_obj_center(label);
+    }
+};
+
+static void lvgl_init() {
+    lvgl_port_cfg_t config = {
+        .task_priority = 4,
+        .task_stack = 7168,
+        .task_affinity = 1,
+        .task_max_sleep_ms = 500,
+        .task_stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DEFAULT,
+        .timer_period_ms = 5,
+    };
+    esp_err_t err = lvgl_port_init(&config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start LVGL: %s", esp_err_to_name(err));
+        assert(0);
+    }
+
+    const bsp_size_t         size = bsp_display_get_size();
+    const bsp_pixel_format_t fmt  = bsp_display_get_pixel_format();
+    const size_t buf_bytes = (size_t)size.width * size.height * bsp_pixel_format_bytes(fmt) / 4;
+
+    s_buf = (uint8_t *)heap_caps_aligned_alloc(4, buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_disp = lv_display_create(size.width, size.height);
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_L8);
+    lv_display_set_buffers(s_disp, s_buf, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(s_disp, [](lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+        bsp_rect_t rect = { { area->x1, area->y1 }, { area->x2 - area->x1 + 1, area->y2 - area->y1 + 1 } };
+        bsp_display_draw_bitmap(rect, px_map);
+        dirty_extend(area->x1, area->y1, area->x2, area->y2);
+
+        if (lv_display_flush_is_last(disp)) {
+            bsp_epd_mode_t mode = s_next_mode ? s_next_mode : s_default_mode;
+            if (mode != BSP_EPD_MODE_NONE) dirty_refresh(mode);
+        }
+        lv_display_flush_ready(disp);
+    });
+    lv_display_set_default(s_disp);
+
+    lv_group_set_default(lv_group_create());
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, [](lv_indev_t*, lv_indev_data_t *data) {
+        bsp_touch_point_t pt;
+        if (bsp_touch_read(&pt, 1) > 0) {
+            data->point.x = pt.x;
+            data->point.y = pt.y;
+            data->state   = LV_INDEV_STATE_PRESSED;
+        } else {
+            data->state = LV_INDEV_STATE_RELEASED;
+        }
+    });
+    lv_indev_set_display(indev, s_disp);
+    lv_indev_set_group(indev, lv_group_get_default());
+
+    // EPD: draws only update GRAM until a refresh
+    bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 }
 
 void app_entry() {
     bsp_init(nullptr);
-    xTaskCreate(loop, "loop", 4096, nullptr, 3, nullptr);
+    lvgl_init();
+
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    lv_async_call([](){
+        screen_manager.load(std::make_shared<HomeScreen>());
+    });
 }

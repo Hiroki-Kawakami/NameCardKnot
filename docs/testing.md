@@ -47,8 +47,9 @@ own thread and advances in lockstep with the loop via a pthread-cond frame count
   (used by `settle`). Returns **false** once the run finished → break the loop.
 - `sim_harness_exit_code()` — process exit code after the run.
 
-The current `main.cpp` passes `idle=true` (no LVGL yet); once LVGL is added, pass
-e.g. `lv_anim_count_running() == 0`.
+`main.cpp` runs the frame loop inside `lvgl_sim_loop()` (from `lvgl.hpp`), which
+already computes `idle` as `lv_anim_count_running() == 0` and forwards it to the
+`tick` callback — `main.cpp` just returns `sim_harness_frame(is_idle)` from there.
 
 ## Portability — capabilities are injected, commands are registered
 

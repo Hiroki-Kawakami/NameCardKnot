@@ -6,8 +6,9 @@ simulator infrastructure, with a host SDL simulator so UI/app logic can be
 developed and verified without hardware. Early stage — the BSP display +
 simulator + sim harness are in place, and the **device EPD + touch paths are
 implemented** (ED047TC1 panel over the ESP32-S3 i80 bus, full-screen blocking
-refresh; GT911 touch over I2C via the in-tree `gt911` polling driver).
-The app itself is still a stub.
+refresh; GT911 touch over I2C via the in-tree `gt911` polling driver). **LVGL is
+wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
+binding; the app itself is still minimal (one home screen).
 
 > **Keep the docs current.** When you change the build flow, the BSP surface
 > (`bsp_*`), the simulator backend, add a board/target, or hit a non-obvious
@@ -15,6 +16,13 @@ The app itself is still a stub.
 > are the handoff to the next session. Keep CLAUDE.md lean: deep verification
 > detail lives in [`docs/testing.md`](docs/testing.md) and gotchas in
 > [`docs/gotchas.md`](docs/gotchas.md) — link, don't inline.
+
+> **Comment only what earns it.** Write a code comment when its absence would
+> cause a concrete mistake later — not to narrate the obvious or to hedge. In
+> particular: don't explain one mechanism by describing its alternatives (e.g. the
+> locking story inside an `lv_async_call` comment), and in a per-target file don't
+> describe the other target at length (the device `CMakeLists.txt` needn't explain
+> the host build). When in doubt, leave it out.
 
 ## Build environment
 
@@ -43,9 +51,9 @@ this repo.
 ## Repo layout
 
 ```
-app/                  # SHARED app logic (NameCardKnot.cpp: app_entry) — currently a stub
+app/                  # SHARED app logic (NameCardKnot.cpp: app_entry + the BSP<->LVGL binding)
 simulator/            # SIMULATOR build root
-  main/main.cpp       #   host entry: app_entry() + the SDL present loop + sim-harness frame stepping
+  main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
   verify/             #   sim-harness scripts; captures land in verify/out/ (gitignored)
 esp32s3/              # DEVICE build root (ESP-IDF project; build artifacts gitignored)
 esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
@@ -59,6 +67,10 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     boards/paper_s3/  #     per-board bring-up: paper_s3.c + paper_s3_panel.c (device) + paper_s3_sim.c (sim)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
   sim_harness/        #   SIM-only scripted UI verification core (portable, DI) → docs/testing.md
+  ui_framework/       #   LVGL port abstraction (panel-agnostic) + reusable UI utils
+    inc/              #     lvgl.hpp (lvgl++ helpers + lvgl_port shim decl) + screen{,_manager}.hpp
+    src/              #     lvgl.cpp (sim lvgl_port_init/lvgl_sim_loop shim), screen_manager.cpp
+    sim/lv_conf.h     #     default LVGL config for the simulator build (overridable)
 ```
 
 Rule of thumb: shared/reusable → `esp-devkit/` (the submodule); app-specific →
@@ -73,11 +85,14 @@ one `simulator` executable (so includes are effectively global; `REQUIRES` are
 ignored). A component that differs per target branches on `ESP_PLATFORM` (set only
 under ESP-IDF) inside its own `CMakeLists.txt` — see `bsp/CMakeLists.txt`. New
 simulator component → add it to `SIMULATOR_COMPONENTS` in `simulator/CMakeLists.txt`.
+(`ui_framework` is the worked example of a component that *also* pulls a host
+library: its simulator branch `FetchContent`s LVGL and links it onto the
+`simulator` target directly — the shim only folds sources, not external targets.)
 
-On **device**, `esp32s3/CMakeLists.txt` lists `../esp-devkit/bsp` in
-`EXTRA_COMPONENT_DIRS` (only `bsp` — `idf_compat`/`sim_harness` are host-only), and
-any component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES` (e.g.
-`app/CMakeLists.txt`). The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
+On **device**, `esp32s3/CMakeLists.txt` lists `../esp-devkit/bsp` and
+`../esp-devkit/ui_framework` in `EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness`
+are host-only), and any component that `#include`s `bsp.h` must name `bsp` in its
+`REQUIRES` (e.g. `app/CMakeLists.txt`, which also names `ui_framework`). The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
 and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is the
 in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
 `PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for
@@ -132,6 +147,49 @@ task; the main thread samples the mouse in `sdl_panel_pump_input()`). See
 `sdl_panel_create(config, &display, &touch)` returns both providers (touch
 nullable) and **self-registers** its input + capture callbacks with the sim
 harness, so the simulator entry needs no wiring for those.
+
+## UI framework — LVGL port abstraction + UI utilities
+
+`ui_framework/` is deliberately thin and panel-agnostic (no display, no touch, no
+EPD) so esp-devkit stays reusable across boards. It ships two things:
+
+**1. The LVGL port, abstracted by mirroring `esp_lvgl_port`'s API.** App code calls
+`lvgl_port_init(&cfg)` identically on both targets:
+- **device:** `lvgl.hpp` includes the real `<esp_lvgl_port.h>` (a managed dep
+  declared in `ui_framework/idf_component.yml`), which owns the LVGL task + tick.
+  LVGL config comes from sdkconfig (Kconfig `CONFIG_LV_*`).
+- **simulator:** `lvgl.cpp` provides a tiny shim (`#ifndef ESP_PLATFORM`) with the
+  same `lvgl_port_cfg_t` + `lvgl_port_init()` (= `lv_init()` + an SDL tick/delay)
+  plus `lvgl_sim_loop(tick)` — the host present loop that pumps input, runs
+  `lv_timer_handler()`, presents, and calls back `tick(is_idle)` per frame
+  (`simulator/main/main.cpp` passes `sim_harness_frame`). Upstream LVGL is fetched
+  with `FetchContent` (`release/v9.5`) and configured by the in-tree
+  `ui_framework/sim/lv_conf.h` (override the dir with the `UI_FRAMEWORK_LV_CONF_DIR`
+  CMake cache var). Only the two LVGL major.minor versions need agree.
+
+**2. Reusable, panel-agnostic UI building blocks:**
+- **`lvgl.hpp`** (lvgl++): std::function wrappers — `lv_async_call`,
+  `lv_obj_add_event_fn`. To touch the UI from another task/thread, either lock with
+  `lv_lock()`/`lv_unlock()` (portable — `LV_USE_OS` is FreeRTOS on device, PThread on
+  the sim) or marshal onto the LVGL context with `lv_async_call` (runs the closure
+  next tick).
+- **`ScreenManager`/`Screen`**: a `shared_ptr`-based navigation stack
+  (`load`/`push`/`pop`/`top`) that swaps the LVGL theme per screen and defers a
+  leaving screen's destruction via `retire()` → `lv_async_call` (so freeing
+  `root_` never deletes the active screen mid-event-dispatch). No panel knowledge.
+
+### The BSP↔LVGL binding + EPD policy live in the app
+
+`app/NameCardKnot.cpp` creates the `lv_display`/`lv_indev`, owns the buffer +
+pixel format, and supplies the flush callback — written only against `bsp_*` +
+`lvgl` (both target-transparent), so the **same file compiles for simulator and
+device**. The flush_cb blits each area with `bsp_display_draw_bitmap`, accumulates
+the dirty rect, and on the last partial flush calls `bsp_display_refresh(dirty,
+mode)`. The EPD refresh mode is the app's own simple policy, exposed via
+`NameCardKnot.hpp`: `epd_set_default_refresh_mode()` (the standing mode) and
+`epd_set_next_refresh_mode()` (overrides the next refresh). A new board re-tailors
+this small glue; esp-devkit itself stays panel-free. Threading and EPD timing
+caveats: [`docs/gotchas.md`](docs/gotchas.md).
 
 ## Verification & gotchas
 
