@@ -52,6 +52,8 @@ this repo.
 
 ```
 app/                  # SHARED app logic (NameCardKnot.cpp: app_entry + the BSP<->LVGL binding)
+  screens/            #   Screen subclasses (HomeScreen) loaded via screen_manager
+  resources/          #   generated LVGL assets (resources.{c,h} aggregates them into `R`); see below
 simulator/            # SIMULATOR build root
   main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
   verify/             #   sim-harness scripts; captures land in verify/out/ (gitignored)
@@ -68,7 +70,7 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
   sim_harness/        #   SIM-only scripted UI verification core (portable, DI) → docs/testing.md
   ui_framework/       #   LVGL port abstraction (panel-agnostic) + reusable UI utils
-    inc/              #     lvgl.hpp (lvgl++ helpers + lvgl_port shim decl) + screen{,_manager}.hpp
+    inc/              #     lvgl.hpp (lvgl++ helpers + lvgl_port shim decl) + screen{,_manager}.hpp + widgets/ (layout.hpp)
     src/              #     lvgl.cpp (sim lvgl_port_init/lvgl_sim_loop shim), screen_manager.cpp
     sim/lv_conf.h     #     default LVGL config for the simulator build (overridable)
 ```
@@ -193,6 +195,9 @@ EPD) so esp-devkit stays reusable across boards. It ships two things:
   (`load`/`push`/`pop`/`top`) that swaps the LVGL theme per screen and defers a
   leaving screen's destruction via `retire()` → `lv_async_call` (so freeing
   `root_` never deletes the active screen mid-event-dispatch). No panel knowledge.
+- **`widgets/layout.hpp`** (pulled in by `lvgl.hpp`): flex-layout helpers —
+  `lv_container_create` (style-stripped, optionally flex/colored), `lv_spacer_create`
+  (grow-able), and `lv_{hor,ver}_separator_create`.
 
 ### The BSP↔LVGL binding + EPD policy live in the app
 
@@ -206,6 +211,21 @@ mode)`. The EPD refresh mode is the app's own simple policy, exposed via
 `epd_set_next_refresh_mode()` (overrides the next refresh). A new board re-tailors
 this small glue; esp-devkit itself stays panel-free. Threading and EPD timing
 caveats: [`docs/gotchas.md`](docs/gotchas.md).
+
+### Screens & resources (app-side)
+
+`app/screens/` holds the `Screen` subclasses (currently just `HomeScreen`); each
+builds its tree in `build()` and is loaded via the `screen_manager`. `app_entry()`
+loads the first screen with `lv_async_call` (onto the LVGL context).
+
+`app/resources/` holds the UI assets, all `#include`-able C with no build step in
+the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
+icons; lv_font_conv for `lucide_40` — see the `Opts:` header in each file for the
+exact command), `lucide_font.h` maps Lucide glyph names to UTF-8 codepoints, and
+the hand-written `resources.{c,h}` gathers them into the single `const struct
+Resources R` that app code reads (`R.icon.*`, `R.font.*`). `Lucide_License.txt` is
+the ISC license for the icon set. All of `app/` is GLOB'd into the build, so new
+files are picked up after a cmake re-run (see `app/CMakeLists.txt`).
 
 ## Verification & gotchas
 

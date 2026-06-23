@@ -14,5 +14,5 @@ list(FILTER APP_SRCS EXCLUDE REGEX "/test/")
 
 idf_component_register(
     SRCS ${APP_SRCS}
-    INCLUDE_DIRS "." "screens"
+    INCLUDE_DIRS "." "screens" "resources"
     REQUIRES esp_timer nvs_flash bsp ui_framework)
