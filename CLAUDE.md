@@ -110,7 +110,9 @@ dispatching through the active vtable.
 
 ### Display vtable (`inc_private/bsp_display.h`)
 
-- **Always non-NULL:** `draw_bitmap` (blit a rectangle), `deinit`.
+- **Always non-NULL:** `draw_bitmap` (blit a rectangle; its `bsp_rotation_t` arg
+  un-rotates the source into the panel-coordinate rect, fused into the copy via the
+  shared `bsp_blit_rotated` helper), `deinit`.
 - **Optional (NULL when absent):** `get_framebuffers` + `flush` (host-framebuffer
   fast path — MIPI), `set_brightness` (backlight), and `set_epd_mode` + `refresh`
   (EPD only). The public `bsp_display_*` wrappers no-op when the op is NULL, so the

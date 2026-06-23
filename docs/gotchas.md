@@ -66,6 +66,22 @@ hit new ones.
   the *last* partial flush calls `bsp_display_refresh(dirty, mode)`. The mode is the
   app's own policy: `epd_set_default_refresh_mode()` (standing) /
   `epd_set_next_refresh_mode()` (overrides the next refresh) in `NameCardKnot.hpp`.
+- **Display rotation = LVGL for layout/touch + BSP for pixels.** The app calls
+  `lv_display_set_rotation()` (currently `ROTATION_90` = 90° CCW) so LVGL lays the
+  UI out in portrait and auto-rotates touch input — that's the single source of
+  truth for orientation. But in `LV_DISPLAY_RENDER_MODE_PARTIAL` with L8, LVGL core
+  does **not** physically rotate the rendered pixels (matrix rotation only works in
+  FULL/DIRECT mode and needs `LV_DRAW_TRANSFORM_USE_MATRIX`, off in our `lv_conf.h`).
+  Rather than rotate into a scratch buffer and copy again, the flush_cb forwards the
+  rotation to **`bsp_display_draw_bitmap(rect, px_map, rotation)`**, which fuses the
+  transpose into the unavoidable GRAM write (`bsp_blit_rotated`, shared by the device
+  ed047tc1 + sim backends). `BSP_ROTATION_*` mirror `lv_display_rotation_t` (a
+  `static_assert` in the app locks this) so the flush_cb just forwards
+  `lv_display_get_rotation()` — no second place to keep in sync. The transpose math
+  matches LVGL's own `rotate{90,180,270}_l8`, so output is pixel-identical. The flush
+  area is still mapped to panel coords with `lv_display_rotate_area`, and
+  `lv_display_create` is given the *physical* panel size. Flip CW/CCW by swapping the
+  one `ROTATION_90`↔`ROTATION_270` in `lvgl_init()`.
 - **Two LVGL builds, one API.** Device pulls LVGL + esp_lvgl_port as managed
   components (esp_lvgl_port declared in `ui_framework/idf_component.yml`; configured
   via sdkconfig Kconfig); the simulator `FetchContent`s upstream LVGL

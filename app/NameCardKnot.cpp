@@ -74,10 +74,13 @@ static void lvgl_init() {
     s_disp = lv_display_create(size.width, size.height);
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_L8);
     lv_display_set_buffers(s_disp, s_buf, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_rotation(s_disp, LV_DISPLAY_ROTATION_90);
     lv_display_set_flush_cb(s_disp, [](lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-        bsp_rect_t rect = { { area->x1, area->y1 }, { area->x2 - area->x1 + 1, area->y2 - area->y1 + 1 } };
-        bsp_display_draw_bitmap(rect, px_map);
-        dirty_extend(area->x1, area->y1, area->x2, area->y2);
+        lv_area_t rot = *area;
+        lv_display_rotate_area(disp, &rot);   // logical area -> physical panel coords
+        bsp_rect_t rect = { { rot.x1, rot.y1 }, { rot.x2 - rot.x1 + 1, rot.y2 - rot.y1 + 1 } };
+        bsp_display_draw_bitmap(rect, px_map, BSP_ROTATION_90);
+        dirty_extend(rot.x1, rot.y1, rot.x2, rot.y2);
 
         if (lv_display_flush_is_last(disp)) {
             bsp_epd_mode_t mode = s_next_mode ? s_next_mode : s_default_mode;
