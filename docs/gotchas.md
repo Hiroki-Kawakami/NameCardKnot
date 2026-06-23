@@ -26,9 +26,42 @@ hit new ones.
 ## BSP / display
 
 - **An EPD shows nothing from `draw_bitmap` alone.** With the persistent EPD mode
-  at its default `BSP_EPD_MODE_NONE`, a draw only updates GRAM. The app must call
-  `bsp_display_refresh(area, mode)` (or `bsp_display_set_epd_mode(non-NONE)` first)
-  to paint the panel. `paper_s3` is `DIRECT_EPD`, so its app draws then refreshes.
+  at its default `BSP_EPD_MODE_NONE`, a draw only stamps the framebuffer. The app
+  must call `bsp_display_refresh(area, mode)` (or `bsp_display_set_epd_mode(non-NONE)`
+  first) to paint the panel. `paper_s3` is `DIRECT_EPD`, so its app draws then refreshes.
+- **The device EPD engine is invisible in the simulator.** On device, `epd_ll` is a
+  transaction-index waveform engine (pure core unit-tested via
+  `esp-devkit/bsp/driver/test/run.sh`):
+  one byte per pixel holds `[7:4]=gray, [3:0]=transaction id`; up to 15 generations
+  drive concurrently. The **diff-skip is done at draw time** — `draw_bitmap` compares
+  the new gray against the byte's current nibble and only stamps an id where they
+  differ (no second "displayed" buffer). `BSP_EPD_MODE_FULL` (OR'd in) aborts every
+  in-flight generation and drives the whole panel for a ghost-clearing flush. The
+  `sdl_panel` EPD model replays no waveform — it just shows the latest framebuffer —
+  so none of this is observable in the sim. Verify on hardware: only the changed
+  region updates, disjoint regions can update in different phases at once, and a
+  periodic full QUALITY clears ghosting.
+- **`bsp_display_refresh` is async on the device EPD; the scan runs on a task.**
+  A partial `refresh` binds the open generation's waveform LUT and activates it
+  (O(1)), returning immediately; a pinned background task runs a continuous frame
+  loop while any generation is ACTIVE. **One framebuffer** (`state`) — no
+  gram/snapshot/disp. A single mutex guards every *write* to `state`/`tx`/`pending_id`
+  (the draw stamp, the LUT bind, the terminal id→0 reclaim) plus the short per-frame
+  action-table build — never the multi-row scan, which reads `state` lock-free (byte
+  reads are atomic). Consequences of the single buffer: (1) no frozen snapshot, so
+  **redrawing a pixel mid-flight with a *different* target interrupts its waveform**
+  (restarts under the new generation) — harmless, recovered next refresh, but a
+  transient artifact. Redrawing the *same* target gray (idle or in-flight) is
+  skipped in `epd_draw_pixel`, so a dirty box that overlaps unchanged in-flight
+  pixels (LVGL joins invalidated areas, so this is common) does **not** re-flash
+  them; (2) the **terminal reclaim is a separate locked pass, not folded into the
+  blit** (folding would write `state` during the lock-free scan and race the draw).
+  A generation activated mid-scan is left at frame 0 and rendered next frame
+  (`epd_frame_mark`'s active-mask gates `epd_frame_advance`), never advanced past
+  its own first frame. A `FULL`/`CLEAR` refresh subsumes concurrent draws — treat it
+  as a quiescent reset, not a mid-animation op. The task is pinned to core 0 to keep
+  its DMA busy-waits off the LVGL core. (The simulator path stays synchronous — this
+  engine lives only in the device driver.)
 - **`L8` has no SDL grayscale streaming format.** `sdl_panel` expands L8 to RGB24
   at present/capture time (texture is `SDL_PIXELFORMAT_RGB24`); don't expect a
   1-byte-per-pixel SDL texture.
@@ -74,8 +107,9 @@ hit new ones.
   FULL/DIRECT mode and needs `LV_DRAW_TRANSFORM_USE_MATRIX`, off in our `lv_conf.h`).
   Rather than rotate into a scratch buffer and copy again, the flush_cb forwards the
   rotation to **`bsp_display_draw_bitmap(rect, px_map, rotation)`**, which fuses the
-  transpose into the unavoidable GRAM write (`bsp_blit_rotated`, shared by the device
-  ed047tc1 + sim backends). `BSP_ROTATION_*` mirror `lv_display_rotation_t` (a
+  transpose into the unavoidable framebuffer write (the sim backends use the shared
+  `bsp_blit_rotated`; the device `epd_ll` inlines the same source↔panel mapping into
+  its diff+stamp stamp loop). `BSP_ROTATION_*` mirror `lv_display_rotation_t` (a
   `static_assert` in the app locks this) so the flush_cb just forwards
   `lv_display_get_rotation()` — no second place to keep in sync. The transpose math
   matches LVGL's own `rotate{90,180,270}_l8`, so output is pixel-identical. The flush

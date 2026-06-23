@@ -76,6 +76,7 @@ static void lvgl_init() {
 
         if (lv_display_flush_is_last(disp)) {
             bsp_epd_mode_t mode = s_next_mode ? s_next_mode : s_default_mode;
+            s_next_mode = BSP_EPD_MODE_NONE;
             if (mode != BSP_EPD_MODE_NONE) dirty_refresh(mode);
         }
         lv_display_flush_ready(disp);
@@ -106,7 +107,8 @@ void app_entry() {
     bsp_init(nullptr);
     lvgl_init();
 
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL); // first paint: full flush
     lv_async_call([](){
         screen_manager.load(std::make_shared<HomeScreen>());
     });

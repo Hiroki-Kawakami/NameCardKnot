@@ -5,8 +5,10 @@ grayscale EPD** (`paper_s3` board). Built on the reusable **`esp-devkit`** BSP /
 simulator infrastructure, with a host SDL simulator so UI/app logic can be
 developed and verified without hardware. Early stage — the BSP display +
 simulator + sim harness are in place, and the **device EPD + touch paths are
-implemented** (ED047TC1 panel over the ESP32-S3 i80 bus, full-screen blocking
-refresh; GT911 touch over I2C via the in-tree `gt911` polling driver). **LVGL is
+implemented** (ED047TC1 panel over the ESP32-S3 i80 bus — a transaction-index
+waveform engine driving up to 15 concurrent refresh generations on an async
+background task, with a `BSP_EPD_MODE_FULL` flag for ghost-clear full flushes;
+GT911 touch over I2C via the in-tree `gt911` polling driver). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
 binding; the app itself is still minimal (one home screen).
 
@@ -63,8 +65,8 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     inc/              #     public API: bsp.h, bsp_types.h
     inc_private/      #     internal vtables: bsp_display.h, bsp_touch.h
     src/              #     shared dispatch: bsp_display.c, bsp_touch.c
-    devices/          #     DEVICE chip drivers: ed047tc1 (EPD panel) + gt911 (I2C touch)
-    driver/           #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE waveform)
+    devices/          #     DEVICE chip drivers: ed047tc1 (EPD panel descriptor) + gt911 (I2C touch)
+    driver/           #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free transaction-index core, host-tested) + test/
     simulator/        #     SIM SDL backend: sdl_panel.{c,h}
     boards/paper_s3/  #     per-board bring-up: paper_s3.c + paper_s3_panel.c (device) + paper_s3_sim.c (sim)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
@@ -131,6 +133,14 @@ dispatching through the active vtable.
   change the persistent mode).
 
 (Consequence: a draw alone shows nothing on EPD — see [`docs/gotchas.md`](docs/gotchas.md).)
+
+Below this seam the device driver (`driver/epd_ll.c`) is a **transaction-index
+waveform engine**: one byte per pixel (`[7:4]=gray, [3:0]=tx id`), the diff-skip
+done at draw time, up to 15 generations driving concurrently on the async task,
+`FULL`/`CLEAR` aborting all in-flight. Its SoC-free core (`driver/epd_waveform.h`)
+is host unit-tested via `esp-devkit/bsp/driver/test/run.sh`. Details + the single-buffer trade-offs:
+[`docs/gotchas.md`](docs/gotchas.md). The simulator's `sdl_panel` EPD path replays
+no waveform, so none of the engine is observable there — verify on hardware.
 
 ### Simulator backend (`bsp/simulator/sdl_panel.c`)
 
