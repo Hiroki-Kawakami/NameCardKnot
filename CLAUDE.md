@@ -146,8 +146,11 @@ mutex-guarded multi-touch snapshot (`bsp_touch_read` copies it on a background
 task; the main thread samples the mouse in `sdl_panel_pump_input()`). See
 [`docs/gotchas.md`](docs/gotchas.md) for the threading rules.
 
+The window is **resizable with an aspect-preserving letterbox**: `present` fits the
+(rotated) panel image into the drawable centered via `content_fit`, painting black
+margins; `window_to_panel` inverts the same fit so touch stays aligned at any size.
 The **r/l keys rotate the host view** (ESC quits): `present` rotates the texture
-with `SDL_RenderCopyEx` and the window aspect is swapped for 90/270; mouse coords
+with `SDL_RenderCopyEx` and the window aspect is reset for 90/270; mouse coords
 are un-rotated back in `window_to_panel`. This is a viewing convenience only — the
 panel buffers and touch coordinate space are unchanged (independent of the app's
 own `lv_display_set_rotation`). The initial rotation defaults to 0; set it at
