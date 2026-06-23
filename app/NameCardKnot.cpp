@@ -5,6 +5,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include <assert.h>
+#include "HomeScreen.hpp"
 
 static const char *TAG = "NameCardKnot";
 
@@ -41,15 +42,6 @@ void epd_set_default_refresh_mode(bsp_epd_mode_t mode) {
 void epd_set_next_refresh_mode(bsp_epd_mode_t mode) {
     s_next_mode = mode;
 }
-
-class HomeScreen : public Screen {
-public:
-    void build() override {
-        lv_obj_t *label = lv_label_create(root_);
-        lv_label_set_text(label, "NameCardKnot");
-        lv_obj_center(label);
-    }
-};
 
 static void lvgl_init() {
     lvgl_port_cfg_t config = {
