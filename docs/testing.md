@@ -17,6 +17,14 @@ auto-created). To eyeball a result, just read the JPEG. `simulator/verify/smoke.
 is the minimal example (settle → capture). Add a script per screen/flow as the UI
 grows, mirroring `Tab5-ADB/simulator/verify/`.
 
+The capture is written in the configured viewing orientation: it applies the SDL
+host-view rotation, which headless can only get from the build-time
+`SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire
+without a window), so it is deterministic. With the default 90° this is the upright
+540×960 portrait — the same way a person sees the rotated window — rather than the
+panel-native 960×540 with the UI lying on its side. The capture still reflects the
+app's own `lv_display_set_rotation`; only the host-view rotation is the addition.
+
 ## Script commands
 
 ```

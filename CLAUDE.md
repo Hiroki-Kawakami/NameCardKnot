@@ -146,6 +146,17 @@ mutex-guarded multi-touch snapshot (`bsp_touch_read` copies it on a background
 task; the main thread samples the mouse in `sdl_panel_pump_input()`). See
 [`docs/gotchas.md`](docs/gotchas.md) for the threading rules.
 
+The **r/l keys rotate the host view** (ESC quits): `present` rotates the texture
+with `SDL_RenderCopyEx` and the window aspect is swapped for 90/270; mouse coords
+are un-rotated back in `window_to_panel`. This is a viewing convenience only — the
+panel buffers and touch coordinate space are unchanged (independent of the app's
+own `lv_display_set_rotation`). The initial rotation defaults to 0; set it at
+configure time with the `SIM_DEFAULT_ROTATION` CMake cache var (0/90/180/270,
+e.g. `-DSIM_DEFAULT_ROTATION=90`), which feeds the `SDL_PANEL_DEFAULT_ROTATION`
+compile define. The harness **JPEG capture honors this rotation** so headless
+verification images come out in the viewing orientation (deterministic, since
+headless never runs the keys) — see [`docs/testing.md`](docs/testing.md).
+
 `sdl_panel_create(config, &display, &touch)` returns both providers (touch
 nullable) and **self-registers** its input + capture callbacks with the sim
 harness, so the simulator entry needs no wiring for those.

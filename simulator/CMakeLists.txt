@@ -32,6 +32,11 @@ target_compile_definitions(simulator PRIVATE
     SDL_MAIN_HANDLED)
 target_link_libraries(simulator SDL2::SDL2 cjson Threads::Threads PkgConfig::JPEG PkgConfig::ZLIB ${CMAKE_DL_LIBS})
 
+# Initial host-view rotation of the SDL window (r/l keys change it at runtime).
+# Override at configure time: -DSIM_DEFAULT_ROTATION=90 (allowed: 0/90/180/270).
+set(SIM_DEFAULT_ROTATION 90 CACHE STRING "Initial SDL simulator window rotation (0/90/180/270)")
+target_compile_definitions(simulator PRIVATE SDL_PANEL_DEFAULT_ROTATION=${SIM_DEFAULT_ROTATION})
+
 # The executable's own entry.
 target_sources(simulator PRIVATE
     main/main.cpp)
