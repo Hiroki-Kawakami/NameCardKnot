@@ -4,6 +4,7 @@
  */
 
 #include "FileBrowserScreen.hpp"
+#include "NameCardScreen.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
 #include <algorithm>
@@ -189,13 +190,25 @@ void FileBrowserScreen::rebuild() {
     }
 }
 
+static bool is_image(const std::string &name) {
+    size_t dot = name.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = name.substr(dot + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+    return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "bmp";
+}
+
 void FileBrowserScreen::open(int index) {
     auto &e = entries_[index];
+    auto path = path_stack_.back() + "/" + e.name;
     if (e.dir) {
-        auto path = path_stack_.back() + "/" + e.name;
         path_stack_.emplace_back(path);
         load();
         rebuild();
         return;
+    }
+    if (is_image(e.name)) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+        screen_manager.push(std::make_shared<NameCardScreen>(path));
     }
 }

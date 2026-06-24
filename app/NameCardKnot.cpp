@@ -51,7 +51,7 @@ void epd_set_next_refresh_mode(bsp_epd_mode_t mode) {
 static void lvgl_init() {
     lvgl_port_cfg_t config = {
         .task_priority = 4,
-        .task_stack = 7168,
+        .task_stack = 16384,
         .task_affinity = 1,
         .task_max_sleep_ms = 500,
         .task_stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DEFAULT,
