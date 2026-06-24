@@ -9,4 +9,7 @@
 void epd_set_default_refresh_mode(bsp_epd_mode_t mode);
 void epd_set_next_refresh_mode(bsp_epd_mode_t mode);
 
+bool mount_sd_card();
+void unmount_sd_card();
+
 void app_entry();

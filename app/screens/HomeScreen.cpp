@@ -6,6 +6,7 @@
 #include "HomeScreen.hpp"
 #include "widgets.hpp"
 #include "resources.h"
+#include "NameCardKnot.hpp"
 #include "FileBrowserScreen.hpp"
 
 void HomeScreen::build() {
@@ -107,6 +108,7 @@ void HomeScreen::build() {
         lv_obj_set_style_pad_ver(row1, 10, 0);
         lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         button(row1, R.icon.card_sd_80px, "Open from SD", [](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
             screen_manager.push(std::make_shared<FileBrowserScreen>());
         });
         lv_ver_separator_create(row1);

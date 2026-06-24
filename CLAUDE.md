@@ -10,7 +10,9 @@ waveform engine driving up to 15 concurrent refresh generations on an async
 background task, with a `BSP_EPD_MODE_FULL` flag for ghost-clear full flushes;
 GT911 touch over I2C via the in-tree `gt911` polling driver). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
-binding; the app itself is still minimal (one home screen).
+binding, and **SD-card access is in** (`bsp_sd_*`: FAT-over-SDSPI on device, a
+host-directory redirect in the simulator). The app is a small screen set (home,
+SD file browser, name card).
 
 > **Keep the docs current.** When you change the build flow, the BSP surface
 > (`bsp_*`), the simulator backend, add a board/target, or hit a non-obvious
@@ -54,7 +56,7 @@ this repo.
 
 ```
 app/                  # SHARED app logic (NameCardKnot.cpp: app_entry + the BSP<->LVGL binding)
-  screens/            #   Screen subclasses (HomeScreen) loaded via screen_manager
+  screens/            #   Screen subclasses (Home, FileBrowser, NameCard) loaded via screen_manager
   resources/          #   generated LVGL assets (resources.{c,h} aggregates them into `R`); see below
 simulator/            # SIMULATOR build root
   main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
@@ -101,7 +103,9 @@ and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is t
 in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
 `PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for
 `i2c_master`/`gpio`. The board (`paper_s3_panel.c`) brings up the shared I2C bus
-and registers the touch provider.
+and registers the touch provider. The SD path (`paper_s3_sd.c`) adds
+`fatfs`/`sdmmc`/`esp_driver_sdmmc`/`esp_driver_sdspi` to the bsp `PRIV_REQUIRES`;
+the simulator folds `simulator/sd_redirect.c` instead.
 
 ## BSP — the display/touch seam (`bsp_*`)
 
@@ -176,6 +180,24 @@ headless never runs the keys) — see [`docs/testing.md`](docs/testing.md).
 nullable) and **self-registers** its input + capture callbacks with the sim
 harness, so the simulator entry needs no wiring for those.
 
+### SD card (`bsp_sd_*`)
+
+Outside the display/touch vtables: `bsp_sd_mount`/`bsp_sd_unmount`/`bsp_sd_is_mounted`
+(`bsp.h`), implemented per target with no vtable since there is one SD provider.
+
+- **device** (`boards/paper_s3/paper_s3_sd.c`): FAT over the SDSPI host on the
+  dedicated SPI2 bus (pins in the file). `config` NULL/zero fields take the
+  documented defaults (`max_files` 0→5, `max_freq_khz` 0→`SDMMC_FREQ_HIGHSPEED`).
+- **simulator** (`simulator/sd_redirect.c`): "mounting" just maps the mount point
+  onto a host directory (`SIMULATOR_SDCARD_PATH`, default `simulator/sdcard`).
+  App code keeps using plain POSIX I/O — the file defines `open`/`fopen`/`opendir`/
+  `stat`/`rename`/`unlink`, which the static link binds over libc, translating
+  mount-point paths and forwarding the rest via `dlsym(RTLD_NEXT)`. Interposition
+  caveat: [`docs/gotchas.md`](docs/gotchas.md).
+
+The app wraps the mount at `/sdcard` behind `mount_sd_card()`/`unmount_sd_card()`
+(`NameCardKnot.hpp`); `FileBrowserScreen` is the consumer.
+
 ## UI framework — LVGL port abstraction + UI utilities
 
 `ui_framework/` is deliberately thin and panel-agnostic (no display, no touch, no
@@ -224,9 +246,14 @@ caveats: [`docs/gotchas.md`](docs/gotchas.md).
 
 ### Screens & resources (app-side)
 
-`app/screens/` holds the `Screen` subclasses (currently just `HomeScreen`); each
-builds its tree in `build()` and is loaded via the `screen_manager`. `app_entry()`
-loads the first screen with `lv_async_call` (onto the LVGL context).
+`app/screens/` holds the `Screen` subclasses; each builds its tree in `build()`
+and is loaded via the `screen_manager`. `app_entry()` loads the first screen
+(`HomeScreen`) with `lv_async_call` (onto the LVGL context). Current screens:
+`HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
+`FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
+via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
+descending into subdirs via an internal path stack (so `back()` pops the stack
+before leaving the screen).
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`

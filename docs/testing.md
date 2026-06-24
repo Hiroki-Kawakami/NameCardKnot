@@ -17,6 +17,10 @@ auto-created). To eyeball a result, just read the JPEG. `simulator/verify/smoke.
 is the minimal example (settle → capture). Add a script per screen/flow as the UI
 grows, mirroring `Tab5-ADB/simulator/verify/`.
 
+Scripts that exercise SD see the host directory the redirect points at
+(`SIMULATOR_SDCARD_PATH`, default `simulator/sdcard` — gitignored except a
+`.gitkeep`, so stage fixtures there). See the SD card seam in the root `CLAUDE.md`.
+
 The capture is written in the configured viewing orientation: it applies the SDL
 host-view rotation, which headless can only get from the build-time
 `SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire
@@ -41,6 +45,12 @@ quit                     stop (implicit at EOF)
 
 Multi-touch: each `id` is an independent finger, so two `down` with different ids
 hold two contacts. The interactive mouse uses id 0.
+
+`tap`/`down`/`move` take **raw panel coordinates** (`paper_s3`: 960×540), *not* the
+capture/viewing orientation. With the app's `lv_display_set_rotation(90)` the logical
+screen is 540×960, so to hit a widget seen at logical `(lx, ly)` press
+`panel_x = ly`, `panel_y = 540 − lx`. `simulator/verify/filebrowser.txt` is a worked
+example (home → SD listing → descend into a subdir).
 
 ## How the harness is driven (frame handshake, not self-pumping)
 

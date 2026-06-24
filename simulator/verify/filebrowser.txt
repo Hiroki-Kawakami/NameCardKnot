@@ -1,0 +1,15 @@
+# Open the SD file browser, capture the listing, then descend into a subdir.
+# Verifies the simulator SD redirect (bsp_sd -> simulator/sdcard) drives the
+# real POSIX directory listing in FileBrowserScreen.
+# Run: ./run.sh simverify simulator/verify/filebrowser.txt
+#
+# tap takes raw panel coords (960x540); the app renders rotated 90 deg to a
+# 540x960 logical screen, so panel_x = logical_y, panel_y = 540 - logical_x.
+settle
+tap 645 397                                      # home: "Open from SD"
+settle
+capture simulator/verify/out/filebrowser.jpg
+tap 138 270                                      # listing: "cards" directory
+settle
+capture simulator/verify/out/filebrowser_cards.jpg
+quit

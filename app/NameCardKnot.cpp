@@ -108,6 +108,20 @@ static void lvgl_init() {
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 }
 
+bool mount_sd_card() {
+    if (!bsp_sd_is_mounted()) {
+        esp_err_t err = bsp_sd_mount("/sdcard", NULL);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void unmount_sd_card() {
+    bsp_sd_unmount();
+}
+
 void app_entry() {
     bsp_init(nullptr);
     lvgl_init();

@@ -62,6 +62,13 @@ hit new ones.
   as a quiescent reset, not a mid-animation op. The task is pinned to core 0 to keep
   its DMA busy-waits off the LVGL core. (The simulator path stays synchronous — this
   engine lives only in the device driver.)
+- **The simulator SD redirect only catches calls compiled into the executable.**
+  `sd_redirect.c` overrides `open`/`fopen`/`opendir`/`stat`/`rename`/`unlink` by
+  defining them in the binary so the static link binds the app's references to them
+  (verified to work on macOS too). Calls made from a *prebuilt* shared library are
+  not intercepted, and a file API the app uses that isn't in that list passes
+  through untranslated — add it to `sd_redirect.c` if a mount-point path can reach
+  it. There is no real filesystem: `bsp_sd_mount` just records the path prefix.
 - **`L8` has no SDL grayscale streaming format.** `sdl_panel` expands L8 to RGB24
   at present/capture time (texture is `SDL_PIXELFORMAT_RGB24`); don't expect a
   1-byte-per-pixel SDL texture.
