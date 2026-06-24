@@ -8,6 +8,7 @@
 #include "resources.h"
 #include "NameCardKnot.hpp"
 #include "FileBrowserScreen.hpp"
+#include "GrayscaleTestScreen.hpp"
 
 void HomeScreen::build() {
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);
@@ -122,6 +123,8 @@ void HomeScreen::build() {
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         button(row2, R.icon.square_arrow_right_enter_80px, "Receive", [](lv_event_t*) {});
         lv_ver_separator_create(row2);
-        button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {});
+        button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {
+            screen_manager.push(std::make_shared<GrayscaleTestScreen>());
+        });
     }
 }
