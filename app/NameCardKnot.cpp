@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Hiroki Kawakami
+ */
+
 #include "NameCardKnot.hpp"
 #include "bsp.h"
 #include "lvgl.hpp"

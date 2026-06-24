@@ -1,5 +1,12 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Hiroki Kawakami
+ */
+
 #include "HomeScreen.hpp"
+#include "widgets.hpp"
 #include "resources.h"
+#include "FileBrowserScreen.hpp"
 
 void HomeScreen::build() {
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);
@@ -74,7 +81,7 @@ void HomeScreen::build() {
     }
 
     { // Buttons
-        auto button = [](lv_obj_t *parent, const void *icon, const char *title) {
+        auto button = [](lv_obj_t *parent, const void *icon, const char *title, std::function<void(lv_event_t*)> on_click) {
             auto button = lv_button_create(parent);
             lv_obj_set_size(button, 200, 140);
             lv_obj_set_flex_flow(button, LV_FLEX_FLOW_COLUMN);
@@ -83,6 +90,7 @@ void HomeScreen::build() {
             lv_obj_set_style_radius(button, 8, 0);
             lv_obj_set_style_border_color(button, lv_color_white(), 0);
             lv_obj_set_style_border_color(button, lv_color_black(), LV_STATE_PRESSED);
+            lv_obj_add_event_fn(button, LV_EVENT_CLICKED, on_click);
 
             auto image = lv_image_create(button);
             lv_image_set_src(image, icon);
@@ -98,9 +106,11 @@ void HomeScreen::build() {
         lv_obj_set_size(row1, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_ver(row1, 10, 0);
         lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row1, R.icon.card_sd_80px, "Open from SD");
+        button(row1, R.icon.card_sd_80px, "Open from SD", [](lv_event_t*) {
+            screen_manager.push(std::make_shared<FileBrowserScreen>());
+        });
         lv_ver_separator_create(row1);
-        button(row1, R.icon.images_80px, "Gallery");
+        button(row1, R.icon.images_80px, "Gallery", [](lv_event_t*) {});
 
         lv_hor_separator_create(root_, 20);
 
@@ -108,8 +118,8 @@ void HomeScreen::build() {
         lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_ver(row2, 10, 0);
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row2, R.icon.square_arrow_right_enter_80px, "Receive");
+        button(row2, R.icon.square_arrow_right_enter_80px, "Receive", [](lv_event_t*) {});
         lv_ver_separator_create(row2);
-        button(row2, R.icon.cog_80px, "Settings");
+        button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {});
     }
 }
