@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
 
 // image_processor: decode JPEG/PNG (from file or buffer), downscale while
 // decoding, convert RGB/YUV -> grayscale with perceptual luminance + gamma,
@@ -143,5 +145,39 @@ struct Progress {
 Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog = nullptr);
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out,
                      Progress *prog = nullptr);
+
+// ---- Async ------------------------------------------------------------------
+
+// Background decode job. Poll progress_pct()/state() from the UI loop; on
+// State::Ok call take_image(). cancel() requests an abort (the caller should keep
+// its modal up until state() becomes Cancelled). Refcounted via shared_ptr, and
+// the worker holds its own ref, so the job stays alive until the decode finishes
+// even if the app drops its handle.
+class DecodeJob {
+public:
+    enum class State { Running, Ok, Failed, Cancelled };
+
+    DecodeJob(const char *path, const Options &opts);  // internal: use decode_file_async
+
+    int    progress_pct() const;
+    State  state() const { return state_.load(); }
+    Status status() const { return status_.load(); }
+    Image  take_image();  // move the result out (after State::Ok, on the UI thread)
+    void   cancel() { prog_.cancel.store(true); }
+
+    void run();  // internal: runs the decode synchronously on the worker
+
+private:
+    Progress prog_;
+    std::atomic<State>  state_{State::Running};
+    std::atomic<Status> status_{Status::Ok};
+    Image image_;
+    std::string path_;
+    Options opts_;
+};
+
+// Starts a background decode (a FreeRTOS task) and returns the job immediately;
+// runs synchronously when built without FreeRTOS (host unit tests).
+std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts);
 
 }  // namespace imgproc

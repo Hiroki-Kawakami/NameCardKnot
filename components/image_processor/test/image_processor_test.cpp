@@ -223,6 +223,34 @@ static void test_png_gradient_inflate() {
     CHECK(y == 16);
 }
 
+static void test_async_job() {
+    Options o;
+    o.target_w = 2;
+    o.target_h = 2;
+    o.fit = Fit::Stretch;
+    o.dither = Dither::None;
+
+    // Bad path -> Failed (host: synchronous fallback completes before returning).
+    auto bad = decode_file_async("/no/such/file.png", o);
+    CHECK(bad->state() == DecodeJob::State::Failed);
+    CHECK(bad->status() == Status::OpenFailed);
+    CHECK(bad->progress_pct() == 0);
+
+    // Real decode via a temp file -> Ok, image extractable.
+    const char *path = "/tmp/imgproc_async_test.png";
+    FILE *f = std::fopen(path, "wb");
+    if (f) {
+        std::fwrite(kPngRgb2x2, 1, sizeof kPngRgb2x2, f);
+        std::fclose(f);
+        auto job = decode_file_async(path, o);
+        CHECK(job->state() == DecodeJob::State::Ok);
+        CHECK(job->progress_pct() == 100);
+        Image img = job->take_image();
+        CHECK(img.w == 2 && img.h == 2 && img.data != nullptr);
+        std::remove(path);
+    }
+}
+
 static void test_png_through_pipeline() {
     Options o;
     o.target_w = 2;
@@ -546,6 +574,7 @@ int main() {
     test_png_rgba_composite();
     test_png_gradient_inflate();
     test_png_through_pipeline();
+    test_async_job();
 
     test_jpeg_gray_flat();
     test_jpeg_gray_split();

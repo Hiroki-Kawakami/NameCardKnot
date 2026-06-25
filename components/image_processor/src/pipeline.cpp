@@ -275,8 +275,9 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out, Progress *p
         BaseType_t dec_core = tskNO_AFFINITY;  // host: pthreads, core id ignored
 #endif
         TaskHandle_t htask = nullptr;
+        UBaseType_t prio = uxTaskPriorityGet(nullptr);  // match the consumer's priority
         if (!ctx.free_sem || !ctx.filled_sem || !ctx.done_sem ||
-            xTaskCreatePinnedToCore(producer_task, "imgdec", 8192, &ctx, 5, &htask, dec_core) != pdPASS) {
+            xTaskCreatePinnedToCore(producer_task, "imgdec", 8192, &ctx, prio, &htask, dec_core) != pdPASS) {
             if (ctx.free_sem) vSemaphoreDelete(ctx.free_sem);
             if (ctx.filled_sem) vSemaphoreDelete(ctx.filled_sem);
             if (ctx.done_sem) vSemaphoreDelete(ctx.done_sem);
