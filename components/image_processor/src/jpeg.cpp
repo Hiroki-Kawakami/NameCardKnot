@@ -185,6 +185,17 @@ bool JpegDecoder::parse_dht(int len) {
             }
             code <<= 1;
         }
+        // Fast table: codes are MSB-first, so a length-l code sits in the top l
+        // bits of the kFastBits peek; fill the don't-care low bits.
+        for (int i = 0; i < kFastSize; i++) t.fast[i] = 0;
+        for (int l = 1; l <= kFastBits; l++) {
+            for (int i = 0; i < t.bits[l]; i++) {
+                int base = (t.mincode[l] + i) << (kFastBits - l);
+                int cnt = 1 << (kFastBits - l);
+                uint16_t entry = static_cast<uint16_t>((l << 8) | t.vals[t.valptr[l] + i]);
+                for (int j = 0; j < cnt; j++) t.fast[base + j] = entry;
+            }
+        }
         t.defined = true;
         len -= 17 + total;
     }
@@ -351,20 +362,22 @@ int JpegDecoder::read_data_byte() {
     return 0;
 }
 
-int JpegDecoder::getbit() {
-    if (bitcnt_ == 0) {
-        bitbuf_ = read_data_byte();
-        bitcnt_ = 8;
+void JpegDecoder::fill(int n) {
+    while (bitcnt_ < n) {
+        int b = read_data_byte();
+        bitbuf_ = (bitbuf_ << 8) | static_cast<uint32_t>(b & 0xFF);
+        bitcnt_ += 8;
     }
-    bitcnt_--;
-    return (bitbuf_ >> bitcnt_) & 1;
 }
 
 int JpegDecoder::getbits(int n) {
-    int v = 0;
-    while (n-- > 0) v = (v << 1) | getbit();
-    return v;
+    if (n == 0) return 0;
+    fill(n);
+    bitcnt_ -= n;
+    return (bitbuf_ >> bitcnt_) & ((1u << n) - 1);
 }
+
+int JpegDecoder::getbit() { return getbits(1); }
 
 int JpegDecoder::receive_extend(int s) {
     int v = getbits(s);
@@ -372,7 +385,7 @@ int JpegDecoder::receive_extend(int s) {
     return v;
 }
 
-int JpegDecoder::huffdecode(const Huff &h) {
+int JpegDecoder::huffdecode_slow(const Huff &h) {
     int code = 0;
     for (int l = 1; l <= 16; l++) {
         code = (code << 1) | getbit();
@@ -381,6 +394,16 @@ int JpegDecoder::huffdecode(const Huff &h) {
     }
     err_ = true;
     return 0;
+}
+
+int JpegDecoder::huffdecode(const Huff &h) {
+    fill(kFastBits);
+    uint16_t e = h.fast[(bitbuf_ >> (bitcnt_ - kFastBits)) & (kFastSize - 1)];
+    if (e) {
+        bitcnt_ -= (e >> 8);
+        return e & 0xFF;
+    }
+    return huffdecode_slow(h);  // code longer than kFastBits
 }
 
 void JpegDecoder::idct_reduce(const int *coeff, const int *q, uint8_t *dst,
@@ -452,6 +475,7 @@ void JpegDecoder::decode_block(int ci, uint8_t *dst, int dst_stride) {
 
 bool JpegDecoder::consume_restart() {
     bitcnt_ = 0;  // discard partial bits
+    bitbuf_ = 0;
     if (marker_pending_) {
         bool ok = marker_ >= 0xD0 && marker_ <= 0xD7;
         marker_pending_ = false;

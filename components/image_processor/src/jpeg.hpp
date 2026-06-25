@@ -26,12 +26,16 @@ public:
     bool next_row(uint8_t *dst) override;
 
 private:
+    static constexpr int kFastBits = 9;
+    static constexpr int kFastSize = 1 << kFastBits;
+
     struct Huff {
         uint8_t bits[17];
         uint8_t vals[256];
         int mincode[17];
         int maxcode[17];  // -1 when no code of that length
         int valptr[17];
+        uint16_t fast[kFastSize];  // (len << 8) | symbol, indexed by kFastBits MSB-first bits; 0 = miss
         bool defined = false;
     };
     struct Comp {
@@ -52,10 +56,12 @@ private:
 
     // --- entropy decode ---
     int  read_data_byte();   // entropy byte with FF-stuffing / marker handling
+    void fill(int n);        // ensure >= n bits buffered (MSB-first)
     int  getbit();
     int  getbits(int n);
     int  receive_extend(int s);
     int  huffdecode(const Huff &h);
+    int  huffdecode_slow(const Huff &h);
     void decode_block(int ci, uint8_t *dst, int dst_stride);
     void idct_reduce(const int *coeff, const int *q, uint8_t *dst, int dst_stride, bool ac);
     bool consume_restart();
@@ -85,8 +91,9 @@ private:
     int  band_valid_rows_ = 0, band_row_ = 0;
     uint32_t out_row_ = 0;
 
-    // bit reader
-    int  bitbuf_ = 0, bitcnt_ = 0;
+    // bit reader (MSB-first; bitbuf_ holds the low bitcnt_ unconsumed bits)
+    uint32_t bitbuf_ = 0;
+    int  bitcnt_ = 0;
     bool marker_pending_ = false;
     int  marker_ = 0;
     uint32_t mcu_count_ = 0;

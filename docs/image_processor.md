@@ -58,12 +58,15 @@ Both are `Decoder`s (a `RowSource` + `open(InputStream&, const Options&)`) behin
 **PNG** — chunk parse (IHDR/PLTE/tRNS/IDAT/IEND) → 5-filter unfilter → per-row
 color normalization. Streams IDAT through a **pull-based in-tree `inflate`**
 (stored/fixed/dynamic DEFLATE, 32 KiB window), so it decodes one scanline at a
-time. Supports 8-bit gray/RGB/RGBA, 1/2/4/8-bit gray and palette, `tRNS`
+time. Huffman symbols decode through a 9-bit fast table (`Huff::fast`, built in
+`construct`); only codes longer than 9 bits fall back to a bit-by-bit walk. Supports 8-bit gray/RGB/RGBA, 1/2/4/8-bit gray and palette, `tRNS`
 composited over white. Unsupported (returns from `open`): 16-bit channels,
 interlaced.
 
 **JPEG** — baseline (SOF0), 8-bit, Huffman. Marker parse → MCU-row band decode →
-unfilter-free Huffman/dequant/IDCT/YCbCr→RGB. **Downscales while decoding**: a
+Huffman/dequant/IDCT/YCbCr→RGB. Huffman uses the same 9-bit fast-table scheme as
+inflate (built in `parse_dht`; MSB-first, so no bit reversal), over a 32-bit
+MSB-first bit buffer. **Downscales while decoding**: a
 1/1..1/8 factor is chosen in `setup()` from `target_w/h` and `max_src_pixels`;
 each 8×8 block is reduced to (8/S)×(8/S) — **DC-only at 1/8**, a jidctfst-style
 integer **AAN IDCT** then box-reduce at 1/2 and 1/4, full AAN IDCT at 1/1. AC-free
@@ -129,8 +132,6 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
 
 ## Known optimization opportunities (not yet done)
 
-- PNG `inflate` decodes Huffman symbols bit-by-bit (`Inflate::decode`); a
-  table-driven decode would speed the PNG hot path (entropy dominates PNG decode).
 - JPEG 1/2 and 1/4 run the full AAN IDCT then box-reduce; a true reduced IDCT
   (4×4 / 2×2 directly) would cut CPU further. 1/8 and AC-free blocks already skip it.
 - `unfilter` (PNG) / YCbCr assembly (JPEG) `post` is the secondary decode cost.

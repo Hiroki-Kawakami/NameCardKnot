@@ -28,13 +28,18 @@ public:
     bool ended() const { return ended_; }
 
 private:
+    static constexpr int kFastBits = 9;
+    static constexpr int kFastSize = 1 << kFastBits;
+
     struct Huff {
-        int16_t count[16];
-        int16_t symbol[288];
+        int16_t  count[16];
+        int16_t  symbol[288];
+        uint16_t fast[kFastSize];  // (len << 9) | symbol, indexed by kFastBits LSB-first bits; 0 = miss
     };
 
     uint32_t bits(int need);
     int      decode(const Huff &h);
+    int      decode_slow(const Huff &h);
     void     build_fixed();
     bool     build_dynamic();
     static int construct(Huff &h, const uint8_t *lengths, int n);

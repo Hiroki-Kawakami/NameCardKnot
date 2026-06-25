@@ -41,7 +41,14 @@ uint32_t Inflate::bits(int need) {
     return val & ((1u << need) - 1);
 }
 
-int Inflate::decode(const Huff &h) {
+static int reverse_bits(int c, int len) {
+    int r = 0;
+    for (int i = 0; i < len; i++) { r = (r << 1) | (c & 1); c >>= 1; }
+    return r;
+}
+
+// Canonical bit-by-bit walk; used only for codes longer than kFastBits.
+int Inflate::decode_slow(const Huff &h) {
     int code = 0, first = 0, index = 0;
     for (int len = 1; len <= 15; len++) {
         code |= static_cast<int>(bits(1));
@@ -55,9 +62,27 @@ int Inflate::decode(const Huff &h) {
     return -1;
 }
 
+int Inflate::decode(const Huff &h) {
+    while (bitcnt_ < kFastBits) {  // peek kFastBits without consuming
+        int c = src_->get();
+        if (c < 0) { eof_ = true; c = 0; }
+        bitbuf_ |= static_cast<uint32_t>(c) << bitcnt_;
+        bitcnt_ += 8;
+    }
+    uint16_t e = h.fast[bitbuf_ & (kFastSize - 1)];
+    if (e) {
+        int len = e >> 9;
+        bitbuf_ >>= len;
+        bitcnt_ -= len;
+        return e & 0x1FF;
+    }
+    return decode_slow(h);  // code longer than kFastBits
+}
+
 int Inflate::construct(Huff &h, const uint8_t *lengths, int n) {
     for (int i = 0; i < 16; i++) h.count[i] = 0;
     for (int s = 0; s < n; s++) h.count[lengths[s]]++;
+    for (int i = 0; i < kFastSize; i++) h.fast[i] = 0;
     if (h.count[0] == n) return 0;  // no codes (valid for an empty distance tree)
 
     int left = 1;
@@ -72,6 +97,22 @@ int Inflate::construct(Huff &h, const uint8_t *lengths, int n) {
     for (int len = 1; len < 15; len++) offs[len + 1] = offs[len] + h.count[len];
     for (int s = 0; s < n; s++)
         if (lengths[s]) h.symbol[offs[lengths[s]]++] = static_cast<int16_t>(s);
+
+    // Fast table: assign canonical codes, fill all entries whose low `len` bits
+    // (LSB-first, so the code is bit-reversed) match a code of length <= kFastBits.
+    uint16_t next_code[16];
+    int code = 0;
+    for (int len = 1; len <= 15; len++) { next_code[len] = static_cast<uint16_t>(code); code = (code + h.count[len]) << 1; }
+    for (int s = 0; s < n; s++) {
+        int len = lengths[s];
+        if (!len) continue;
+        int c = next_code[len]++;
+        if (len <= kFastBits) {
+            int rev = reverse_bits(c, len);
+            for (int j = rev; j < kFastSize; j += (1 << len))
+                h.fast[j] = static_cast<uint16_t>((len << 9) | s);
+        }
+    }
     return left;  // > 0 => incomplete
 }
 
