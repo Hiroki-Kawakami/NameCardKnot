@@ -121,10 +121,16 @@ void HomeScreen::build() {
         lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_ver(row2, 10, 0);
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row2, R.icon.square_arrow_right_enter_80px, "Receive", [](lv_event_t*) {});
+        button(row2, R.icon.square_arrow_right_enter_80px, "Receive", [this](lv_event_t*) {
+            lv_modal_open(root_);
+        });
         lv_ver_separator_create(row2);
         button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {
             screen_manager.push(std::make_shared<GrayscaleTestScreen>());
         });
     }
+}
+
+void HomeScreen::onAppear() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
 }

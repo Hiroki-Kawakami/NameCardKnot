@@ -127,7 +127,6 @@ void app_entry() {
     lvgl_init();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL); // first paint: full flush
     lv_async_call([](){
         screen_manager.load(std::make_shared<HomeScreen>());
     });

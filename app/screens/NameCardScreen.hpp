@@ -5,7 +5,6 @@
 
 #pragma once
 #include "screen_manager.hpp"
-#include "widgets.hpp"
 #include <string>
 
 class NameCardScreen : public Screen {
@@ -16,4 +15,6 @@ public:
 
 private:
     std::string path_;
+
+    void openMenu();
 };

@@ -9,4 +9,5 @@
 class HomeScreen : public Screen {
 public:
     void build() override;
+    void onAppear() override;
 };
