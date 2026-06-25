@@ -10,6 +10,7 @@
 
 #include "alloc.hpp"
 #include "pipeline.hpp"
+#include "profile.hpp"
 #include "rowsource.hpp"
 #include "sniff.hpp"
 #include "stream.hpp"
@@ -67,6 +68,8 @@ void Image::reset() {
 
 static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     out.reset();
+    PROF_RESET();
+    PROF_T0(t_total);
 
     uint8_t hdr[InputStream::kPeekMax];
     size_t  n = in.peek(hdr, sizeof hdr);
@@ -82,7 +85,10 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
     if (st != Status::Ok) return st;
 
-    return run_pipeline(*dec, opts, out);
+    st = run_pipeline(*dec, opts, out);
+    PROF_ADD(total_us, t_total);
+    PROF_REPORT(out.w, out.h);
+    return st;
 }
 
 Status decode_file(const char *path, const Options &opts, Image &out) {

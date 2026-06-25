@@ -7,7 +7,22 @@
 
 #include <cstring>
 
+#include "profile.hpp"
+
 namespace imgproc {
+
+size_t InputStream::source_read(void *dst, size_t n) {
+#if IMGPROC_PROFILE
+    int64_t t = prof_now_us();
+    size_t got = raw_read(dst, n);
+    g_prof.io_us += prof_now_us() - t;
+    g_prof.io_calls++;
+    g_prof.io_bytes += static_cast<long>(got);
+    return got;
+#else
+    return raw_read(dst, n);
+#endif
+}
 
 size_t InputStream::read(void *dst, size_t n) {
     uint8_t *d = static_cast<uint8_t *>(dst);
@@ -17,7 +32,7 @@ size_t InputStream::read(void *dst, size_t n) {
         size_t avail = buf_len_ - buf_pos_;
         if (avail == 0) {  // refill the window from the source
             buf_pos_ = 0;
-            buf_len_ = raw_read(buf_, kBufSize);
+            buf_len_ = source_read(buf_, kBufSize);
             if (buf_len_ == 0) break;  // end of stream
             avail = buf_len_;
         }
@@ -42,7 +57,7 @@ size_t InputStream::peek(void *dst, size_t n) {
             buf_pos_ = 0;
         }
         while (buf_len_ < n) {  // top up enough for the look-ahead
-            size_t got = raw_read(buf_ + buf_len_, kBufSize - buf_len_);
+            size_t got = source_read(buf_ + buf_len_, kBufSize - buf_len_);
             if (got == 0) break;
             buf_len_ += got;
         }

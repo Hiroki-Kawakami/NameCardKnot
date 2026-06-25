@@ -90,6 +90,27 @@ with `Fit::Contain` + `levels=16`, owns the `imgproc::Image`, and wraps it into 
 Image must outlive the descriptor and the `lv_image`. EPD `QUALITY_FULL` is set in
 `onAppear()`.
 
+## Profiling (`IMGPROC_PROFILE`)
+
+`decode_*` prints a one-line per-decode stage breakdown via `printf` (device: idf
+monitor; simulator: terminal). On by default; the host unit tests build with
+`-DIMGPROC_PROFILE=0` to stay quiet (define it to 0 anywhere to compile the timing
+out). Timing source is `esp_timer_get_time()` on device, `std::chrono` on host
+(`src/profile.{hpp,cpp}`).
+
+```
+[imgproc] 540x540  total=7860us  decode=1562us (compute=1169us io=393us,11 calls,40KB)  color+down=330us  dither=5780us
+```
+
+- **decode** — `RowSource::next_row` (inflate / JPEG IDCT+Huffman), inclusive of
+  **io** (the raw SD/file reads); `compute = decode − io`.
+- **color+down** — linearize + luma + box downscale. Uses `double` math, so this
+  grows on the FPU-limited device relative to the host numbers above.
+- **dither** — finalize + dither + pack.
+
+Use it to decide what to optimize before touching code — the host and device
+splits differ, so measure on hardware.
+
 ## Known optimization opportunities (not yet done)
 
 - JPEG 1/2 and 1/4 still run the **full 8×8 IDCT** then box-reduce; a true reduced

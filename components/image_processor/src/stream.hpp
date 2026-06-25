@@ -35,6 +35,8 @@ protected:
     virtual size_t raw_read(void *dst, size_t n) = 0;
 
 private:
+    size_t source_read(void *dst, size_t n);  // raw_read + I/O profiling
+
     uint8_t buf_[kBufSize];
     size_t  buf_len_ = 0;  // valid bytes in buf_
     size_t  buf_pos_ = 0;  // bytes already consumed from buf_

@@ -18,4 +18,5 @@ file(GLOB_RECURSE IMAGE_PROCESSOR_SRCS
 idf_component_register(
     SRCS ${IMAGE_PROCESSOR_SRCS}
     INCLUDE_DIRS "inc"
-    PRIV_INCLUDE_DIRS "src")
+    PRIV_INCLUDE_DIRS "src"
+    PRIV_REQUIRES esp_timer)  # esp_timer_get_time() for the IMGPROC_PROFILE timing

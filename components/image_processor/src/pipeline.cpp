@@ -15,6 +15,7 @@
 #include "color.hpp"
 #include "dither.hpp"
 #include "pack.hpp"
+#include "profile.hpp"
 
 namespace imgproc {
 
@@ -100,12 +101,14 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
     }
 
     auto finalize_row = [&](int y, uint64_t vwsum) {
+        PROF_T0(tf);
         for (int x = 0; x < dw; x++) {
             uint32_t avg = static_cast<uint32_t>(vacc[x] / vwsum);
             gray[x] = color.finalize(avg);
         }
         dith.process_row(gray.get(), y, lvls.get());
         pack_row(opts.out, lvls.get(), dw, n, buf + static_cast<size_t>(y) * stride);
+        PROF_ADD(dither_us, tf);
     };
 
     // Streaming vertical box: each source row [sy, sy+1) is distributed by overlap
@@ -114,10 +117,14 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
     uint64_t vwsum = 0;
     int y = 0;
     for (int sy = 0; sy < sh && y < dh; sy++) {
-        if (!src.next_row(srow.get())) {
+        PROF_T0(td);
+        bool ok = src.next_row(srow.get());
+        PROF_ADD(decode_us, td);
+        if (!ok) {
             img_free(buf);
             return Status::Truncated;
         }
+        PROF_T0(tt);
         color.to_intensity(srow.get(), sw, ch, irow.get());
         hreduce(irow.get(), sw, hrow.get(), dw);
 
@@ -141,6 +148,7 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
                 break;  // need more source rows for this dst row
             }
         }
+        PROF_ADD(transform_us, tt);  // color + downsample (+ dither, subtracted in report)
     }
     if (y < dh && vwsum) {  // flush a residual row left by rounding
         finalize_row(y, vwsum);
