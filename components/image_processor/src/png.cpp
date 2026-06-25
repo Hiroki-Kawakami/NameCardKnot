@@ -8,6 +8,8 @@
 #include <cstring>
 #include <new>
 
+#include "profile.hpp"
+
 namespace imgproc {
 
 static uint32_t be32(const uint8_t *p) {
@@ -147,6 +149,11 @@ Status PngDecoder::open(InputStream &in, const Options &opts) {
     cur_.reset(new (std::nothrow) uint8_t[rowbytes_]);
     filtbuf_.reset(new (std::nothrow) uint8_t[1 + rowbytes_]);
     if (!prev_ || !cur_ || !filtbuf_) return Status::OutOfMemory;
+
+    PROF_SET(fmt, "png");
+    PROF_SET(src_w, width);
+    PROF_SET(src_h, height);
+    PROF_SET(scale, 1);
     return Status::Ok;
 }
 
@@ -225,11 +232,18 @@ void PngDecoder::convert_row(const uint8_t *line, uint8_t *dst) {
 bool PngDecoder::next_row(uint8_t *dst) {
     if (row_ >= height) return false;
     size_t need = 1 + rowbytes_;
-    if (inflate_.read(filtbuf_.get(), need) != need || inflate_.failed()) return false;
 
+    PROF_T0(te);
+    size_t got = inflate_.read(filtbuf_.get(), need);
+    PROF_ADD(entropy_us, te);
+    if (got != need || inflate_.failed()) return false;
+
+    PROF_T0(tp);
     uint8_t filter = filtbuf_[0];
     unfilter(filter, filtbuf_.get() + 1, cur_.get());
     convert_row(cur_.get(), dst);
+    PROF_ADD(post_us, tp);
+
     prev_.swap(cur_);
     row_++;
     return true;

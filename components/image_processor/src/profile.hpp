@@ -23,8 +23,13 @@ struct Prof {
     int64_t io_us;         // raw source reads (SD / file)
     int64_t transform_us;  // color convert + downsample (includes dither_us)
     int64_t dither_us;     // finalize + dither + pack
+    int64_t entropy_us;    // PNG inflate / JPEG Huffman + dequant
+    int64_t idct_us;       // JPEG IDCT
+    int64_t post_us;       // PNG unfilter + convert / JPEG YCbCr assembly
     int     io_calls;
     long    io_bytes;
+    const char *fmt;       // "png" / "jpeg"
+    int     src_w, src_h, scale;
 };
 
 extern Prof g_prof;
@@ -37,10 +42,12 @@ void prof_report(int w, int h);
 #define PROF_RESET()        ::imgproc::prof_reset()
 #define PROF_T0(v)          int64_t v = ::imgproc::prof_now_us()
 #define PROF_ADD(field, t0) (::imgproc::g_prof.field += ::imgproc::prof_now_us() - (t0))
+#define PROF_SET(field, v)  (::imgproc::g_prof.field = (v))
 #define PROF_REPORT(w, h)   ::imgproc::prof_report((w), (h))
 #else
 #define PROF_RESET()        ((void)0)
 #define PROF_T0(v)          ((void)0)
 #define PROF_ADD(field, t0) ((void)0)
+#define PROF_SET(field, v)  ((void)0)
 #define PROF_REPORT(w, h)   ((void)0)
 #endif

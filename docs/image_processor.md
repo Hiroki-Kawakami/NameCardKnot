@@ -65,10 +65,14 @@ interlaced.
 **JPEG** — baseline (SOF0), 8-bit, Huffman. Marker parse → MCU-row band decode →
 unfilter-free Huffman/dequant/IDCT/YCbCr→RGB. **Downscales while decoding**: a
 1/1..1/8 factor is chosen in `setup()` from `target_w/h` and `max_src_pixels`;
-each 8×8 block is reduced to (8/S)×(8/S) — **DC-only at 1/8** (skips the IDCT, the
-big win for huge images), full IDCT + box-reduce at 1/2 and 1/4. Supports
-grayscale + YCbCr with sampling factors ≤ 2×2 (4:4:4 / 4:2:2 / 4:4:0 / 4:2:0) and
-restart intervals. Unsupported: progressive, 16-bit, arithmetic, CMYK.
+each 8×8 block is reduced to (8/S)×(8/S) — **DC-only at 1/8**, a jidctfst-style
+integer **AAN IDCT** then box-reduce at 1/2 and 1/4, full AAN IDCT at 1/1. AC-free
+blocks take a **flat-block fast path** (skip the IDCT, fill with the DC value —
+a big win for the smooth regions of a name card). The AAN scale factors are
+folded into the dequant table (`aan_qt_`, built in `setup()`), so the IDCT applies
+dequant + scaling in one multiply. Supports grayscale + YCbCr with sampling
+factors ≤ 2×2 (4:4:4 / 4:2:2 / 4:4:0 / 4:2:0) and restart intervals. Unsupported:
+progressive, 16-bit, arithmetic, CMYK.
 
 Both decoders pull **one byte at a time** from the `InputStream`. The base class
 batches the underlying source into a 4 KiB window (`raw_read` is called per refill,
@@ -125,8 +129,11 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
 
 ## Known optimization opportunities (not yet done)
 
-- JPEG 1/2 and 1/4 still run the **full 8×8 IDCT** then box-reduce; a true reduced
-  IDCT (4×4 / 2×2) would cut CPU. 1/8 already skips it.
+- PNG `inflate` decodes Huffman symbols bit-by-bit (`Inflate::decode`); a
+  table-driven decode would speed the PNG hot path (entropy dominates PNG decode).
+- JPEG 1/2 and 1/4 run the full AAN IDCT then box-reduce; a true reduced IDCT
+  (4×4 / 2×2 directly) would cut CPU further. 1/8 and AC-free blocks already skip it.
+- `unfilter` (PNG) / YCbCr assembly (JPEG) `post` is the secondary decode cost.
 - LVGL's bundled lodepng/tjpgd and the device `espressif__zlib` managed dependency
   are no longer used by NameCard and can be dropped once nothing else needs them.
 

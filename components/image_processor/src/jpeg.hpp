@@ -57,7 +57,7 @@ private:
     int  receive_extend(int s);
     int  huffdecode(const Huff &h);
     void decode_block(int ci, uint8_t *dst, int dst_stride);
-    void idct_reduce(const int *coeff, uint8_t *dst, int dst_stride);
+    void idct_reduce(const int *coeff, const int *q, uint8_t *dst, int dst_stride, bool ac);
     bool consume_restart();
     void decode_mcu_row();
 
@@ -70,7 +70,8 @@ private:
     int  hmax_ = 1, vmax_ = 1;
     int  out_ch_ = 1;
 
-    uint16_t qt_[4][64];
+    uint16_t qt_[4][64];      // dequant tables (zigzag order)
+    int      aan_qt_[4][64];  // AAN-prescaled dequant (natural order) for the fast IDCT
     Huff dc_[4];
     Huff ac_[4];
     int  restart_interval_ = 0;
