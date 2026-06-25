@@ -208,7 +208,92 @@ void FileBrowserScreen::open(int index) {
         return;
     }
     if (is_image(e.name)) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
-        screen_manager.push(std::make_shared<NameCardScreen>(path));
+        openProgress(e.name, path);
     }
+}
+
+void FileBrowserScreen::openProgress(const std::string &name, const std::string &path) {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    card_ = lv_modal_open(root_);
+    lv_modal_title_create(card_, "Loading...");
+    lv_modal_message_create(card_, name.c_str());
+
+    bar_ = lv_bar_create(card_);
+    lv_obj_set_width(bar_, LV_PCT(100));
+    lv_bar_set_min_value(bar_, 0);
+    lv_bar_set_max_value(bar_, 100);
+    lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
+
+    lv_modal_button_create(card_, "Cancel", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *e) {
+        if (job_) job_->cancel();
+        cancelling_ = true;  // keep the modal up until the worker acknowledges
+        auto button = lv_event_get_target_obj(e);
+        lv_obj_add_state(button, LV_STATE_DISABLED);
+        lv_label_set_text(lv_obj_get_child(button, 0), "Cancelling...");
+    });
+
+    // Decode at the display resolution (Contain, 16-gray) on a background task;
+    // poll the job from the UI loop and drive the bar.
+    lv_display_t *disp = lv_display_get_default();
+    imgproc::Options opts;
+    opts.target_w = lv_display_get_horizontal_resolution(disp);
+    opts.target_h = lv_display_get_vertical_resolution(disp);
+    opts.fit = imgproc::Fit::Contain;
+    opts.levels = 16;
+    job_ = imgproc::decode_file_async(path.c_str(), opts);
+
+    cancelling_ = false;
+    last_pct_ = 0;
+    step_pct_ = 5;
+    last_tick_ = lv_tick_get();
+    poll_ = lv_timer_create([](lv_timer_t *t) {
+        static_cast<FileBrowserScreen *>(lv_timer_get_user_data(t))->poll();
+    }, 100, this);
+}
+
+void FileBrowserScreen::poll() {
+    if (!job_) return;
+    auto state = job_->state();
+
+    if (state == imgproc::DecodeJob::State::Running) {
+        if (cancelling_) return;  // waiting for the worker to stop
+        int pct = job_->progress_pct();
+        if (pct - last_pct_ >= step_pct_) {
+            // Adaptive throttle: widen the step when updates arrive faster than
+            // 500ms so EPD FAST refreshes stay ~500-1000ms apart.
+            if (lv_tick_elaps(last_tick_) < 500) {
+                if (step_pct_ < 10) step_pct_ = 10;
+                else if (step_pct_ < 20) step_pct_ = 20;
+                else if (step_pct_ < 50) step_pct_ = 50;
+            }
+            lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
+            last_pct_ = pct;
+            last_tick_ = lv_tick_get();
+        }
+        return;
+    }
+
+    // Terminal: cancelled / failed just dismiss the modal; Ok opens the card.
+    bool ok = state == imgproc::DecodeJob::State::Ok && !cancelling_;
+    imgproc::Image img;
+    if (ok) img = job_->take_image();
+    stopLoad();
+    lv_modal_close(card_);
+    card_ = nullptr;
+    bar_ = nullptr;
+    if (ok) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+        screen_manager.push(std::make_shared<NameCardScreen>(std::move(img)));
+    }
+}
+
+void FileBrowserScreen::stopLoad() {
+    if (poll_) { lv_timer_delete(poll_); poll_ = nullptr; }
+    job_.reset();
+    cancelling_ = false;
+}
+
+FileBrowserScreen::~FileBrowserScreen() {
+    if (job_) job_->cancel();  // worker holds its own ref; it finishes on its own
+    stopLoad();
 }

@@ -9,27 +9,18 @@
 #include "widgets.hpp"
 #include "resources.h"
 
-NameCardScreen::NameCardScreen(std::string path) : path_(std::move(path)) {}
+NameCardScreen::NameCardScreen(imgproc::Image image) : image_(std::move(image)) {}
 
 void NameCardScreen::build() {
-    // Decode at the display resolution so dithering lands on native EPD pixels;
-    // the image is shown 1:1 (no LVGL scaling). Options default to Rec709 luma +
-    // sRGB gamma + Floyd-Steinberg, which suit the 16-gray EPD.
-    lv_display_t *disp = lv_display_get_default();
-    imgproc::Options opts;
-    opts.target_w = lv_display_get_horizontal_resolution(disp);
-    opts.target_h = lv_display_get_vertical_resolution(disp);
-    opts.fit = imgproc::Fit::Contain;
-    opts.levels = 16;  // EPD QUALITY mode
-
-    imgproc::Status st = imgproc::decode_file(path_.c_str(), opts, image_);
-    if (st == imgproc::Status::Ok && imgproc_fill_lv_dsc(image_, dsc_)) {
+    // The image is already decoded (FileBrowserScreen, at the display resolution),
+    // so just show it 1:1 (no LVGL scaling) via the L8 -> lv_image_dsc adapter.
+    if (imgproc_fill_lv_dsc(image_, dsc_)) {
         auto image = lv_image_create(root_);
         lv_image_set_src(image, &dsc_);
         lv_obj_center(image);
     } else {
         auto label = lv_label_create(root_);
-        lv_label_set_text_fmt(label, "Failed to load image\n%s", imgproc::status_str(st));
+        lv_label_set_text(label, "No image");
         lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
         lv_obj_center(label);
     }
