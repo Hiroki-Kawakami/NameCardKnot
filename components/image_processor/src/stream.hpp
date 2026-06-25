@@ -12,11 +12,17 @@
 // Sequential byte source for decoders. read() consumes; peek() looks ahead
 // without consuming (used for format sniffing) up to kPeekMax bytes. No seek:
 // decoders are single-pass over the stream.
+//
+// The decoders pull one byte at a time, so the base class batches the source
+// into a kBufSize window: raw_read() (the per-source fetch) is only called per
+// buffer refill, never per byte. This matters on the device, where a 1-byte
+// fread from FAT-over-SDSPI is very slow.
 namespace imgproc {
 
 class InputStream {
 public:
-    static constexpr size_t kPeekMax = 16;
+    static constexpr size_t kBufSize = 4096;  // source reads are batched to this
+    static constexpr size_t kPeekMax = 16;    // max non-consuming look-ahead
 
     virtual ~InputStream() = default;
 
@@ -29,9 +35,9 @@ protected:
     virtual size_t raw_read(void *dst, size_t n) = 0;
 
 private:
-    uint8_t pb_[kPeekMax];
-    size_t  pb_len_ = 0;  // bytes buffered
-    size_t  pb_pos_ = 0;  // bytes already consumed from the buffer
+    uint8_t buf_[kBufSize];
+    size_t  buf_len_ = 0;  // valid bytes in buf_
+    size_t  buf_pos_ = 0;  // bytes already consumed from buf_
 };
 
 class BufferInputStream : public InputStream {

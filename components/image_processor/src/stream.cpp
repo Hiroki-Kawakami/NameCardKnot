@@ -13,35 +13,44 @@ size_t InputStream::read(void *dst, size_t n) {
     uint8_t *d = static_cast<uint8_t *>(dst);
     size_t total = 0;
 
-    size_t buffered = pb_len_ - pb_pos_;
-    if (buffered) {
-        size_t k = buffered < n ? buffered : n;
-        std::memcpy(d, pb_ + pb_pos_, k);
-        pb_pos_ += k;
+    while (n) {
+        size_t avail = buf_len_ - buf_pos_;
+        if (avail == 0) {  // refill the window from the source
+            buf_pos_ = 0;
+            buf_len_ = raw_read(buf_, kBufSize);
+            if (buf_len_ == 0) break;  // end of stream
+            avail = buf_len_;
+        }
+        size_t k = avail < n ? avail : n;
+        std::memcpy(d, buf_ + buf_pos_, k);
+        buf_pos_ += k;
         d += k;
         total += k;
         n -= k;
     }
-    if (n) total += raw_read(d, n);
     return total;
 }
 
 size_t InputStream::peek(void *dst, size_t n) {
     if (n > kPeekMax) n = kPeekMax;
 
-    size_t buffered = pb_len_ - pb_pos_;
-    if (buffered < n) {
-        if (pb_pos_) {  // compact unconsumed bytes to the front
-            std::memmove(pb_, pb_ + pb_pos_, buffered);
-            pb_len_ = buffered;
-            pb_pos_ = 0;
+    size_t avail = buf_len_ - buf_pos_;
+    if (avail < n) {
+        if (buf_pos_) {  // compact unconsumed bytes to the front
+            std::memmove(buf_, buf_ + buf_pos_, avail);
+            buf_len_ = avail;
+            buf_pos_ = 0;
         }
-        pb_len_ += raw_read(pb_ + pb_len_, kPeekMax - pb_len_);
-        buffered = pb_len_ - pb_pos_;
+        while (buf_len_ < n) {  // top up enough for the look-ahead
+            size_t got = raw_read(buf_ + buf_len_, kBufSize - buf_len_);
+            if (got == 0) break;
+            buf_len_ += got;
+        }
+        avail = buf_len_ - buf_pos_;
     }
 
-    size_t k = buffered < n ? buffered : n;
-    std::memcpy(dst, pb_ + pb_pos_, k);
+    size_t k = avail < n ? avail : n;
+    std::memcpy(dst, buf_ + buf_pos_, k);
     return k;
 }
 

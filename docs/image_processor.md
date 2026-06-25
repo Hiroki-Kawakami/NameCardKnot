@@ -70,6 +70,11 @@ big win for huge images), full IDCT + box-reduce at 1/2 and 1/4. Supports
 grayscale + YCbCr with sampling factors ≤ 2×2 (4:4:4 / 4:2:2 / 4:4:0 / 4:2:0) and
 restart intervals. Unsupported: progressive, 16-bit, arithmetic, CMYK.
 
+Both decoders pull **one byte at a time** from the `InputStream`. The base class
+batches the underlying source into a 4 KiB window (`raw_read` is called per refill,
+not per byte), so per-byte decoding doesn't hit a `fread` per byte — which is very
+slow on FAT-over-SDSPI on the device.
+
 ## Status codes
 
 `Ok`, `OpenFailed` (file), `UnsupportedFormat` (container/feature), `DecodeError`
@@ -89,8 +94,6 @@ Image must outlive the descriptor and the `lv_image`. EPD `QUALITY_FULL` is set 
 
 - JPEG 1/2 and 1/4 still run the **full 8×8 IDCT** then box-reduce; a true reduced
   IDCT (4×4 / 2×2) would cut CPU. 1/8 already skips it.
-- `PngDecoder::IdatSource::get()` and `JpegDecoder::raw()` read **one byte per
-  call** through the `InputStream`; buffering would speed the hot path.
 - LVGL's bundled lodepng/tjpgd and the device `espressif__zlib` managed dependency
   are no longer used by NameCard and can be dropped once nothing else needs them.
 
