@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -23,6 +24,7 @@ enum class Status {
     TooLarge,           // source exceeds Options::max_src_pixels (rejected before alloc)
     OutOfMemory,
     BadArgument,
+    Cancelled,          // aborted via Progress::cancel
 };
 
 const char *status_str(Status s);
@@ -127,9 +129,19 @@ struct Image {
     void reset();  // free + clear
 };
 
+// Optional progress + cancellation channel. The decoder writes done/total; the
+// caller writes cancel. Each field has a single writer (no locking needed). LVGL-
+// free: the app polls the atomics from its own UI loop.
+struct Progress {
+    std::atomic<int>  done{0};         // finalized output rows (decoder writes)
+    std::atomic<int>  total{0};        // output rows; set once when known (decoder writes)
+    std::atomic<bool> cancel{false};   // set to request an abort (caller writes)
+};
+
 // ---- Entry points -----------------------------------------------------------
 
-Status decode_file(const char *path, const Options &opts, Image &out);
-Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out);
+Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog = nullptr);
+Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out,
+                     Progress *prog = nullptr);
 
 }  // namespace imgproc

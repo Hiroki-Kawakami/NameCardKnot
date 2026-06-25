@@ -27,6 +27,7 @@ const char *status_str(Status s) {
         case Status::TooLarge:          return "TooLarge";
         case Status::OutOfMemory:       return "OutOfMemory";
         case Status::BadArgument:       return "BadArgument";
+        case Status::Cancelled:         return "Cancelled";
     }
     return "?";
 }
@@ -66,7 +67,7 @@ void Image::reset() {
 
 // ---- Orchestration ----------------------------------------------------------
 
-static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
+static Status decode_stream(InputStream &in, const Options &opts, Image &out, Progress *prog) {
     out.reset();
     PROF_RESET();
     PROF_T0(t_total);
@@ -85,27 +86,27 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
     if (st != Status::Ok) return st;
 
-    st = run_pipeline(*dec, opts, out);
+    st = run_pipeline(*dec, opts, out, prog);
     PROF_ADD(total_us, t_total);
     PROF_REPORT(out.w, out.h);
     return st;
 }
 
-Status decode_file(const char *path, const Options &opts, Image &out) {
+Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog) {
     if (!path) return Status::BadArgument;
     FILE *fp = std::fopen(path, "rb");
     if (!fp) return Status::OpenFailed;
     FileInputStream in(fp);
-    Status st = in.ok() ? decode_stream(in, opts, out) : Status::OutOfMemory;
+    Status st = in.ok() ? decode_stream(in, opts, out, prog) : Status::OutOfMemory;
     std::fclose(fp);
     return st;
 }
 
-Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out) {
+Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out, Progress *prog) {
     if (!data && len) return Status::BadArgument;
     BufferInputStream in(data, len);
     if (!in.ok()) return Status::OutOfMemory;
-    return decode_stream(in, opts, out);
+    return decode_stream(in, opts, out, prog);
 }
 
 }  // namespace imgproc

@@ -14,6 +14,6 @@ namespace imgproc {
 // fills `out` (allocated here). Holds only per-row working buffers plus the
 // output, never the full-resolution source. Decoder-agnostic: also driven
 // directly by the host tests with a synthetic RowSource.
-Status run_pipeline(RowSource &src, const Options &opts, Image &out);
+Status run_pipeline(RowSource &src, const Options &opts, Image &out, Progress *prog = nullptr);
 
 }  // namespace imgproc

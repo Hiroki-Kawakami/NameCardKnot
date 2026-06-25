@@ -6,6 +6,7 @@
 #include "pipeline.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -32,12 +33,15 @@
 
 namespace imgproc {
 
+static inline bool cancelled(const std::atomic<bool> *c) { return c && c->load(); }
+
 #if IMGPROC_PARALLEL
 struct ProducerCtx {
     RowSource *src;
     int sh, slots;
     uint8_t **bufs;
     SemaphoreHandle_t free_sem, filled_sem, done_sem;
+    const std::atomic<bool> *cancel;  // shared with the consumer/caller
     volatile bool error;
 };
 
@@ -47,7 +51,9 @@ struct ProducerCtx {
 static void producer_task(void *arg) {
     ProducerCtx *p = static_cast<ProducerCtx *>(arg);
     for (int sy = 0; sy < p->sh; sy++) {
+        if (cancelled(p->cancel)) break;
         xSemaphoreTake(p->free_sem, portMAX_DELAY);
+        if (cancelled(p->cancel)) break;  // re-check after waking (consumer may have aborted)
         PROF_T0(td);
         bool ok = p->src->next_row(p->bufs[sy % p->slots]);
         PROF_ADD(decode_us, td);
@@ -148,7 +154,7 @@ static void hreduce(const uint16_t *irow, uint16_t *hrow, int dw, const HBox &hb
     }
 }
 
-Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
+Status run_pipeline(RowSource &src, const Options &opts, Image &out, Progress *prog) {
     out.reset();
 
     int sw = src.width, sh = src.height, ch = src.channels();
@@ -157,6 +163,8 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
     int dw, dh;
     Status st = compute_dst(sw, sh, opts, dw, dh);
     if (st != Status::Ok) return st;
+    if (prog) prog->total.store(dh);
+    const std::atomic<bool> *cancel = prog ? &prog->cancel : nullptr;
 
     int n = opts.levels < 2 ? 2 : opts.levels;
     if (opts.out == OutFormat::I1 && n != 2) return Status::BadArgument;
@@ -256,6 +264,7 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         ctx.free_sem = xSemaphoreCreateCounting(kSlots, kSlots);
         ctx.filled_sem = xSemaphoreCreateCounting(kSlots, 0);
         ctx.done_sem = xSemaphoreCreateBinary();
+        ctx.cancel = cancel;
         ctx.error = false;
         // Pin the decoder to the core NOT running the consumer, so they truly run
         // in parallel instead of time-slicing one core. (Without this the wall-clock
@@ -275,23 +284,31 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
             return Status::OutOfMemory;
         }
 
+        bool cancel_hit = false;
         for (int sy = 0; sy < sh; sy++) {
             xSemaphoreTake(ctx.filled_sem, portMAX_DELAY);
             if (ctx.error) break;
+            if (cancelled(cancel)) { cancel_hit = true; break; }
             PROF_T0(tt);
             process_row(bufs[sy % kSlots], sy);
             PROF_ADD(transform_us, tt);
+            if (prog) prog->done.store(y);
             xSemaphoreGive(ctx.free_sem);
         }
+        // Unblock the producer if it is parked on a free slot, then join.
+        if (cancel_hit)
+            for (int i = 0; i < kSlots; i++) xSemaphoreGive(ctx.free_sem);
         xSemaphoreTake(ctx.done_sem, portMAX_DELAY);
         bool trunc = ctx.error;
         vSemaphoreDelete(ctx.free_sem);
         vSemaphoreDelete(ctx.filled_sem);
         vSemaphoreDelete(ctx.done_sem);
+        if (cancel_hit) { img_free(buf); return Status::Cancelled; }
         if (trunc) { img_free(buf); return Status::Truncated; }
     }
 #else
     for (int sy = 0; sy < sh && y < dh; sy++) {
+        if (cancelled(cancel)) { img_free(buf); return Status::Cancelled; }
         PROF_T0(td);
         bool ok = src.next_row(srow.get());
         PROF_ADD(decode_us, td);
@@ -302,6 +319,7 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         PROF_T0(tt);
         process_row(srow.get(), sy);
         PROF_ADD(transform_us, tt);
+        if (prog) prog->done.store(y);
     }
 #endif
 
@@ -309,6 +327,7 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         finalize_row(y, vwsum);
         y++;
     }
+    if (prog) prog->done.store(dh);  // 100% on success
 
     out.data = buf;
     out.w = static_cast<uint16_t>(dw);

@@ -498,6 +498,24 @@ static void test_pipeline_bad_args() {
     CHECK(run_pipeline(src, o, img) == Status::BadArgument);
 }
 
+static void test_pipeline_progress_and_cancel() {
+    Options o = base_opts(8, 8);
+
+    SolidSource src(8, 8, PixelKind::Gray8, 128);
+    Progress prog;
+    Image img;
+    CHECK(run_pipeline(src, o, img, &prog) == Status::Ok);
+    CHECK(prog.total.load() == 8);
+    CHECK(prog.done.load() == 8);  // reaches total on success
+
+    SolidSource src2(8, 8, PixelKind::Gray8, 128);
+    Progress prog2;
+    prog2.cancel.store(true);  // pre-cancelled -> aborts before producing output
+    Image img2;
+    CHECK(run_pipeline(src2, o, img2, &prog2) == Status::Cancelled);
+    CHECK(img2.data == nullptr);
+}
+
 int main() {
     test_status_str();
     test_alloc_roundtrip();
@@ -520,6 +538,7 @@ int main() {
     test_pipeline_invert();
     test_pipeline_truncated();
     test_pipeline_bad_args();
+    test_pipeline_progress_and_cancel();
 
     test_png_gray();
     test_png_rgb();
