@@ -111,9 +111,11 @@ needed), `../esp-devkit/bsp`, and `../esp-devkit/ui_framework` in
 `EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness` are host-only), and any
 component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES` (e.g.
 `app/CMakeLists.txt`, which also names `ui_framework` and `image_processor`).
-(`image_processor` is in `SIMULATOR_COMPONENTS` for the host build; its only
-device requirements are the always-present `heap` for `heap_caps_*` and
-`esp_timer` for the `IMGPROC_PROFILE` stage timing.) The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
+(`image_processor` is in `SIMULATOR_COMPONENTS` for the host build; its device
+requirements are the always-present `heap` for `heap_caps_*`, `esp_timer` for the
+`IMGPROC_PROFILE` stage timing, and `freertos` for the `IMGPROC_PARALLEL`
+producer/consumer pipeline — the simulator gets FreeRTOS from `idf_compat`, the
+host unit tests build both off.) The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
 and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is the
 in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
 `PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for

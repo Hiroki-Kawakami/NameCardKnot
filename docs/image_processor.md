@@ -133,6 +133,25 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
   (`vacc/vwsum`) is a per-row reciprocal multiply, and power-of-two error-diffusion
   divisors (FS=16 / Atkinson=8 / Sierra=32) use a shift.
 
+### Two-stage parallelism (`IMGPROC_PARALLEL`)
+
+The entropy bitstream is serial (can't be split across cores), but decode and the
+rest of the pipeline can overlap. A **producer task** (`producer_task`) pulls source rows via `RowSource::next_row`
+(decode + I/O) into a 6-slot ring; the **consumer** (the calling thread, the
+LVGL task on the device) drains the ring through color → downscale → dither →
+pack. The producer is pinned with `xTaskCreatePinnedToCore` to
+`1 - xPortGetCoreID()` — the core *not* running the consumer — so the two genuinely
+run in parallel; pinning both to one core just time-slices it (no speedup, and the
+wall-clock stage timings inflate). Two counting semaphores (free / filled) bound the ring; a binary `done_sem`
+joins before teardown. Wall-clock then approaches `max(decode, rest)` instead of
+their sum (the profile shows `total < decode + transform` as proof).
+
+Each `Prof` field has a single writer — decode/io/entropy/idct/post on the
+producer, transform/dither on the consumer — so the shared struct needs no lock.
+On by default; the host unit tests build `-DIMGPROC_PARALLEL=0` (no FreeRTOS),
+which keeps the pipeline single-threaded and host-testable. FreeRTOS comes from
+ESP-IDF on device and from `idf_compat` (pthread-backed) in the simulator.
+
 ## Known optimization opportunities (not yet done)
 
 - JPEG 1/2 and 1/4 run the full AAN IDCT then box-reduce; a true reduced IDCT

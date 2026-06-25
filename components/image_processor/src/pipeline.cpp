@@ -17,7 +17,51 @@
 #include "pack.hpp"
 #include "profile.hpp"
 
+// Two-stage parallel pipeline: a producer task decodes source rows (the serial
+// entropy/IDCT path) on one core while the consumer (the calling thread) runs
+// color/downscale/dither/pack on the other. Off (single-threaded) when built
+// without FreeRTOS — the host unit tests set -DIMGPROC_PARALLEL=0.
+#ifndef IMGPROC_PARALLEL
+#define IMGPROC_PARALLEL 1
+#endif
+#if IMGPROC_PARALLEL
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#endif
+
 namespace imgproc {
+
+#if IMGPROC_PARALLEL
+struct ProducerCtx {
+    RowSource *src;
+    int sh, slots;
+    uint8_t **bufs;
+    SemaphoreHandle_t free_sem, filled_sem, done_sem;
+    volatile bool error;
+};
+
+// Decodes source rows into the ring; the consumer drains it. Each g_prof field
+// has a single writer (decode/io here, transform/dither on the consumer), so the
+// shared struct needs no locking.
+static void producer_task(void *arg) {
+    ProducerCtx *p = static_cast<ProducerCtx *>(arg);
+    for (int sy = 0; sy < p->sh; sy++) {
+        xSemaphoreTake(p->free_sem, portMAX_DELAY);
+        PROF_T0(td);
+        bool ok = p->src->next_row(p->bufs[sy % p->slots]);
+        PROF_ADD(decode_us, td);
+        if (!ok) {
+            p->error = true;
+            xSemaphoreGive(p->filled_sem);
+            break;
+        }
+        xSemaphoreGive(p->filled_sem);
+    }
+    xSemaphoreGive(p->done_sem);
+    vTaskDelete(nullptr);
+}
+#endif
 
 static Status compute_dst(int sw, int sh, const Options &opts, int &dw, int &dh) {
     int tw = opts.target_w, th = opts.target_h;
@@ -148,38 +192,31 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         return Status::OutOfMemory;
     }
 
-    auto finalize_row = [&](int y, uint64_t vwsum) {
+    // Vertical box accumulation state (consumer-only; captured by process_row).
+    std::memset(vacc.get(), 0, sizeof(uint64_t) * dw);
+    uint64_t vwsum = 0;
+    int y = 0;
+
+    auto finalize_row = [&](int yy, uint64_t vws) {
         PROF_T0(tf);
-        // vwsum is constant for the row, so divide once and multiply per pixel
+        // vws is constant for the row, so divide once and multiply per pixel
         // (a 64-bit divide per pixel was a big chunk of the dither bucket).
-        uint64_t inv = (static_cast<uint64_t>(1) << 32) / vwsum;
+        uint64_t inv = (static_cast<uint64_t>(1) << 32) / vws;
         for (int x = 0; x < dw; x++) {
             uint32_t avg = static_cast<uint32_t>((vacc[x] * inv + (1ull << 31)) >> 32);
             if (avg > 65535) avg = 65535;
             gray[x] = color.finalize(avg);
         }
-        dith.process_row(gray.get(), y, lvls.get());
-        pack_row(opts.out, lvls.get(), dw, n, buf + static_cast<size_t>(y) * stride);
+        dith.process_row(gray.get(), yy, lvls.get());
+        pack_row(opts.out, lvls.get(), dw, n, buf + static_cast<size_t>(yy) * stride);
         PROF_ADD(dither_us, tf);
     };
 
-    // Streaming vertical box: each source row [sy, sy+1) is distributed by overlap
-    // into the destination rows it covers; a row completes when fully spanned.
-    std::memset(vacc.get(), 0, sizeof(uint64_t) * dw);
-    uint64_t vwsum = 0;
-    int y = 0;
-    for (int sy = 0; sy < sh && y < dh; sy++) {
-        PROF_T0(td);
-        bool ok = src.next_row(srow.get());
-        PROF_ADD(decode_us, td);
-        if (!ok) {
-            img_free(buf);
-            return Status::Truncated;
-        }
-        PROF_T0(tt);
-        color.to_intensity(srow.get(), sw, ch, irow.get());
+    // One source row [sy, sy+1): distribute by vertical overlap into the dst rows
+    // it covers; a dst row completes (is finalized) once fully spanned.
+    auto process_row = [&](const uint8_t *srow_data, int sy) {
+        color.to_intensity(srow_data, sw, ch, irow.get());
         hreduce(irow.get(), hrow.get(), dw, hb);
-
         double top = sy, bot = sy + 1;
         while (y < dh) {
             double vy0 = static_cast<double>(y) * sh / dh;
@@ -200,8 +237,74 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
                 break;  // need more source rows for this dst row
             }
         }
-        PROF_ADD(transform_us, tt);  // color + downsample (+ dither, subtracted in report)
+    };
+
+#if IMGPROC_PARALLEL
+    {
+        const int kSlots = 6;
+        std::unique_ptr<uint8_t[]> ring(
+            new (std::nothrow) uint8_t[static_cast<size_t>(sw) * ch * kSlots]);
+        if (!ring) { img_free(buf); return Status::OutOfMemory; }
+        uint8_t *bufs[kSlots];
+        for (int i = 0; i < kSlots; i++) bufs[i] = ring.get() + static_cast<size_t>(i) * sw * ch;
+
+        ProducerCtx ctx{};
+        ctx.src = &src;
+        ctx.sh = sh;
+        ctx.slots = kSlots;
+        ctx.bufs = bufs;
+        ctx.free_sem = xSemaphoreCreateCounting(kSlots, kSlots);
+        ctx.filled_sem = xSemaphoreCreateCounting(kSlots, 0);
+        ctx.done_sem = xSemaphoreCreateBinary();
+        ctx.error = false;
+        // Pin the decoder to the core NOT running the consumer, so they truly run
+        // in parallel instead of time-slicing one core. (Without this the wall-clock
+        // stage timings inflate and there is no speedup.)
+#ifdef ESP_PLATFORM
+        BaseType_t dec_core = 1 - xPortGetCoreID();
+#else
+        BaseType_t dec_core = tskNO_AFFINITY;  // host: pthreads, core id ignored
+#endif
+        TaskHandle_t htask = nullptr;
+        if (!ctx.free_sem || !ctx.filled_sem || !ctx.done_sem ||
+            xTaskCreatePinnedToCore(producer_task, "imgdec", 8192, &ctx, 5, &htask, dec_core) != pdPASS) {
+            if (ctx.free_sem) vSemaphoreDelete(ctx.free_sem);
+            if (ctx.filled_sem) vSemaphoreDelete(ctx.filled_sem);
+            if (ctx.done_sem) vSemaphoreDelete(ctx.done_sem);
+            img_free(buf);
+            return Status::OutOfMemory;
+        }
+
+        for (int sy = 0; sy < sh; sy++) {
+            xSemaphoreTake(ctx.filled_sem, portMAX_DELAY);
+            if (ctx.error) break;
+            PROF_T0(tt);
+            process_row(bufs[sy % kSlots], sy);
+            PROF_ADD(transform_us, tt);
+            xSemaphoreGive(ctx.free_sem);
+        }
+        xSemaphoreTake(ctx.done_sem, portMAX_DELAY);
+        bool trunc = ctx.error;
+        vSemaphoreDelete(ctx.free_sem);
+        vSemaphoreDelete(ctx.filled_sem);
+        vSemaphoreDelete(ctx.done_sem);
+        if (trunc) { img_free(buf); return Status::Truncated; }
     }
+#else
+    for (int sy = 0; sy < sh && y < dh; sy++) {
+        PROF_T0(td);
+        bool ok = src.next_row(srow.get());
+        PROF_ADD(decode_us, td);
+        if (!ok) {
+            img_free(buf);
+            return Status::Truncated;
+        }
+        PROF_T0(tt);
+        process_row(srow.get(), sy);
+        PROF_ADD(transform_us, tt);
+    }
+#endif
+
     if (y < dh && vwsum) {  // flush a residual row left by rounding
         finalize_row(y, vwsum);
         y++;
