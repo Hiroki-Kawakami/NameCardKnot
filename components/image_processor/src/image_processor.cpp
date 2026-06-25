@@ -96,7 +96,7 @@ Status decode_file(const char *path, const Options &opts, Image &out) {
     FILE *fp = std::fopen(path, "rb");
     if (!fp) return Status::OpenFailed;
     FileInputStream in(fp);
-    Status st = decode_stream(in, opts, out);
+    Status st = in.ok() ? decode_stream(in, opts, out) : Status::OutOfMemory;
     std::fclose(fp);
     return st;
 }
@@ -104,6 +104,7 @@ Status decode_file(const char *path, const Options &opts, Image &out) {
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out) {
     if (!data && len) return Status::BadArgument;
     BufferInputStream in(data, len);
+    if (!in.ok()) return Status::OutOfMemory;
     return decode_stream(in, opts, out);
 }
 

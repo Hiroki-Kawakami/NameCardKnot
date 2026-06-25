@@ -78,9 +78,10 @@ factors ≤ 2×2 (4:4:4 / 4:2:2 / 4:4:0 / 4:2:0) and restart intervals. Unsuppor
 progressive, 16-bit, arithmetic, CMYK.
 
 Both decoders pull **one byte at a time** from the `InputStream`. The base class
-batches the underlying source into a 4 KiB window (`raw_read` is called per refill,
-not per byte), so per-byte decoding doesn't hit a `fread` per byte — which is very
-slow on FAT-over-SDSPI on the device.
+batches the underlying source into a 32 KiB heap window (`raw_read` is called per
+refill, not per byte), so per-byte decoding doesn't hit a `fread` per byte — which
+is very slow on FAT-over-SDSPI on the device. The window is heap-allocated (too
+big for the LVGL task stack); `InputStream::ok()` reports an allocation failure.
 
 ## Status codes
 
@@ -148,6 +149,14 @@ their sum (the profile shows `total < decode + transform` as proof).
 
 Each `Prof` field has a single writer — decode/io/entropy/idct/post on the
 producer, transform/dither on the consumer — so the shared struct needs no lock.
+
+The speedup is bounded by the shared **PSRAM bus**: the output buffer is in PSRAM
+(consumer writes), so to keep the producer off that bus the JPEG band is allocated
+in **internal RAM** (`img_alloc_internal`, PSRAM fallback for very wide images) and
+the SD window is 32 KiB. Even so, expect well under 2× — the workload is memory-
+bandwidth-bound, and for a big PNG the consumer is already fully hidden behind a
+long serial decode (`total ≈ decode`), so the remaining lever there is the decoder
+itself, not more parallelism.
 On by default; the host unit tests build `-DIMGPROC_PARALLEL=0` (no FreeRTOS),
 which keeps the pipeline single-threaded and host-testable. FreeRTOS comes from
 ESP-IDF on device and from `idf_compat` (pthread-backed) in the simulator.

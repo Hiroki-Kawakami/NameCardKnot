@@ -21,10 +21,12 @@ namespace imgproc {
 
 class InputStream {
 public:
-    static constexpr size_t kBufSize = 4096;  // source reads are batched to this
-    static constexpr size_t kPeekMax = 16;    // max non-consuming look-ahead
+    static constexpr size_t kBufSize = 32768;  // batched source reads (fewer slow SD freads)
+    static constexpr size_t kPeekMax = 16;     // max non-consuming look-ahead
 
-    virtual ~InputStream() = default;
+    InputStream();
+    virtual ~InputStream();
+    bool ok() const { return buf_ != nullptr; }  // false if the read buffer failed to allocate
 
     // Returns bytes actually copied (< n only at end of stream).
     size_t read(void *dst, size_t n);
@@ -37,9 +39,9 @@ protected:
 private:
     size_t source_read(void *dst, size_t n);  // raw_read + I/O profiling
 
-    uint8_t buf_[kBufSize];
-    size_t  buf_len_ = 0;  // valid bytes in buf_
-    size_t  buf_pos_ = 0;  // bytes already consumed from buf_
+    uint8_t *buf_ = nullptr;  // kBufSize, heap (too big for the LVGL task stack)
+    size_t   buf_len_ = 0;    // valid bytes in buf_
+    size_t   buf_pos_ = 0;    // bytes already consumed from buf_
 };
 
 class BufferInputStream : public InputStream {

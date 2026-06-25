@@ -26,6 +26,14 @@ void *img_alloc(size_t size, uint32_t caps) {
 #endif
 }
 
+void *img_alloc_internal(size_t size) {
+#ifdef ESP_PLATFORM
+    return heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    return std::malloc(size);
+#endif
+}
+
 void img_free(void *p) {
 #ifdef ESP_PLATFORM
     heap_caps_free(p);

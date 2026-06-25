@@ -15,6 +15,9 @@
 namespace imgproc {
 
 void *img_alloc(size_t size, uint32_t caps);
+// Internal RAM (device) / malloc (host). Returns null if it won't fit. Used for
+// the JPEG band so the decoder doesn't fight the consumer for the PSRAM bus.
+void *img_alloc_internal(size_t size);
 void  img_free(void *p);
 
 }  // namespace imgproc

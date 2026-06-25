@@ -6,10 +6,14 @@
 #include "stream.hpp"
 
 #include <cstring>
+#include <new>
 
 #include "profile.hpp"
 
 namespace imgproc {
+
+InputStream::InputStream() : buf_(new (std::nothrow) uint8_t[kBufSize]) {}
+InputStream::~InputStream() { delete[] buf_; }
 
 size_t InputStream::source_read(void *dst, size_t n) {
 #if IMGPROC_PROFILE
