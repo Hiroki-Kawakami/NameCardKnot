@@ -125,7 +125,10 @@ void unmount_sd_card() {
 }
 
 void app_entry() {
-    bsp_init(nullptr);
+    bsp_config_t bsp_config = {};
+    bsp_config.epd.task_priority = 5;
+    bsp_config.epd.task_affinity = 0;
+    bsp_init(&bsp_config);
     lvgl_init();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
