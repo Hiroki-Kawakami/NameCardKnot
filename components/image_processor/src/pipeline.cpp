@@ -150,8 +150,12 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
 
     auto finalize_row = [&](int y, uint64_t vwsum) {
         PROF_T0(tf);
+        // vwsum is constant for the row, so divide once and multiply per pixel
+        // (a 64-bit divide per pixel was a big chunk of the dither bucket).
+        uint64_t inv = (static_cast<uint64_t>(1) << 32) / vwsum;
         for (int x = 0; x < dw; x++) {
-            uint32_t avg = static_cast<uint32_t>(vacc[x] / vwsum);
+            uint32_t avg = static_cast<uint32_t>((vacc[x] * inv + (1ull << 31)) >> 32);
+            if (avg > 65535) avg = 65535;
             gray[x] = color.finalize(avg);
         }
         dith.process_row(gray.get(), y, lvls.get());

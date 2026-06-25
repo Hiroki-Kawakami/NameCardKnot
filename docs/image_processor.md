@@ -129,6 +129,9 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
 - **Dither is integer** (`src/dither.cpp`): quantize is a 256-entry LUT, error
   diffusion carries fixed-point (`<<8`) error in `int32` buffers, Bayer thresholds
   are integers — no per-pixel `float`.
+- **No per-pixel divide in finalize/dither**: the box-average divide
+  (`vacc/vwsum`) is a per-row reciprocal multiply, and power-of-two error-diffusion
+  divisors (FS=16 / Atkinson=8 / Sierra=32) use a shift.
 
 ## Known optimization opportunities (not yet done)
 

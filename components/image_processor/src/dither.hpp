@@ -41,6 +41,8 @@ private:
 
     std::unique_ptr<int32_t[]> err_;  // 3 * width_, fixed-point error (value << 8)
     int ring0_ = 0;
+    int div_ = 16;        // error-diffusion divisor
+    int div_shift_ = 4;   // log2(div_) if a power of two, else -1
 
     void diffuse_row(const uint8_t *gray, int y, uint8_t *out);
     void ordered_row(const uint8_t *gray, int y, uint8_t *out);

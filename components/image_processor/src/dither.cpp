@@ -84,10 +84,13 @@ bool Ditherer::init(const Options &opts, int width) {
                 bthr_[i] = (255 * (2 * bmat_[i] + 1) - 255 * cells) / (2 * cells);
             break;
         }
-        default:
+        default: {
             err_.reset(new (std::nothrow) int32_t[3 * static_cast<size_t>(width)]());
             if (!err_) return false;
+            div_ = kernel_for(method_).div;  // FS=16 / Atkinson=8 / Sierra=32 are powers of 2
+            div_shift_ = (div_ & (div_ - 1)) == 0 ? __builtin_ctz(div_) : -1;
             break;
+        }
     }
     return true;
 }
@@ -126,7 +129,8 @@ void Ditherer::diffuse_row(const uint8_t *gray, int y, uint8_t *out) {
         for (int i = 0; i < k.count; i++) {
             int tx = x + dir * k.cells[i].dx;
             if (tx < 0 || tx >= width_) continue;
-            int add = ef * k.cells[i].w / k.div;
+            int wn = ef * k.cells[i].w;
+            int add = div_shift_ >= 0 ? (wn >> div_shift_) : (wn / div_);
             switch (k.cells[i].dy) {
                 case 0: cur[tx] += add; break;
                 case 1: n1[tx] += add; break;
