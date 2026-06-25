@@ -5,8 +5,13 @@
 
 #include "image_processor.hpp"
 
-#include <cstdlib>
+#include <cstdio>
 #include <utility>
+
+#include "alloc.hpp"
+#include "rowsource.hpp"
+#include "sniff.hpp"
+#include "stream.hpp"
 
 namespace imgproc {
 
@@ -25,8 +30,6 @@ const char *status_str(Status s) {
 }
 
 // ---- Image ------------------------------------------------------------------
-// NOTE: allocation/free of `data` is a stub until Phase 1 introduces the
-// caps-aware allocator (heap_caps on device, malloc on host).
 
 Image::~Image() {
     reset();
@@ -53,28 +56,49 @@ Image &Image::operator=(Image &&other) noexcept {
 }
 
 void Image::reset() {
-    std::free(data);
+    img_free(data);
     data = nullptr;
     w = h = 0;
     stride = 0;
 }
 
-// ---- Entry points -----------------------------------------------------------
-// Phase 0 skeleton: wiring only. Decoders + pipeline arrive in later phases.
+// ---- Orchestration ----------------------------------------------------------
 
-Status decode_file(const char *path, const Options &opts, Image &out) {
-    (void)path;
-    (void)opts;
+static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     out.reset();
+
+    uint8_t hdr[InputStream::kPeekMax];
+    size_t  n = in.peek(hdr, sizeof hdr);
+    Format  fmt = sniff(hdr, n);
+    if (fmt == Format::Unknown) return Status::UnsupportedFormat;
+
+    std::unique_ptr<Decoder> dec = make_decoder(fmt);
+    if (!dec) return Status::UnsupportedFormat;  // Phase 1: decoders not wired
+
+    Status st = dec->open(in);
+    if (st != Status::Ok) return st;
+
+    st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
+    if (st != Status::Ok) return st;
+
+    // Pipeline (downscale -> color -> dither -> pack) lands in Phase 2.
     return Status::UnsupportedFormat;
 }
 
+Status decode_file(const char *path, const Options &opts, Image &out) {
+    if (!path) return Status::BadArgument;
+    FILE *fp = std::fopen(path, "rb");
+    if (!fp) return Status::OpenFailed;
+    FileInputStream in(fp);
+    Status st = decode_stream(in, opts, out);
+    std::fclose(fp);
+    return st;
+}
+
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out) {
-    (void)data;
-    (void)len;
-    (void)opts;
-    out.reset();
-    return Status::UnsupportedFormat;
+    if (!data && len) return Status::BadArgument;
+    BufferInputStream in(data, len);
+    return decode_stream(in, opts, out);
 }
 
 }  // namespace imgproc
