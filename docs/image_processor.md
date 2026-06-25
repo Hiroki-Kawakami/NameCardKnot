@@ -165,9 +165,10 @@ ESP-IDF on device and from `idf_compat` (pthread-backed) in the simulator.
 
 - JPEG 1/2 and 1/4 run the full AAN IDCT then box-reduce; a true reduced IDCT
   (4×4 / 2×2 directly) would cut CPU further. 1/8 and AC-free blocks already skip it.
-- JPEG YCbCr assembly (`post`) is still per-pixel; PNG `unfilter` is already
-  branch-hoisted per scanline. PNG `inflate` pulls input a block at a time
-  (`ByteSource::refill`), not a virtual call per byte.
+- JPEG entropy still reads input a byte at a time (FF-stuffing makes block-buffering
+  fiddly); PNG `inflate` already pulls input a block at a time (`ByteSource::refill`).
+- PNG `unfilter` is branch-hoisted per scanline; JPEG YCbCr assembly upsamples
+  chroma with precomputed shifts (no per-pixel divide).
 - LVGL's bundled lodepng/tjpgd and the device `espressif__zlib` managed dependency
   are no longer used by NameCard and can be dropped once nothing else needs them.
 

@@ -502,6 +502,16 @@ void JpegDecoder::decode_mcu_row() {
     if (base + band_valid_rows_ > static_cast<int>(height))
         band_valid_rows_ = static_cast<int>(height) - base;
 
+    // Chroma upsample addressing: sampling factors are 1 or 2, so /hmax,/vmax are
+    // shifts. Precompute per component to keep the assembly inner loop division-free.
+    int vsh[3], hsh[3], cstride[3];
+    for (int i = 0; i < ncomp_; i++) {
+        vsh[i] = comp_[i].v == vmax_ ? 0 : 1;
+        hsh[i] = comp_[i].h == hmax_ ? 0 : 1;
+        cstride[i] = comp_[i].h * blk_;
+    }
+    int mcu_w = blk_ * hmax_;
+
     for (int mx = 0; mx < mcus_per_row_ && !err_; mx++) {
         if (restart_interval_ && mcu_count_ > 0 && mcu_count_ % restart_interval_ == 0) {
             if (!consume_restart()) { err_ = true; return; }
@@ -517,19 +527,19 @@ void JpegDecoder::decode_mcu_row() {
 
         // Assemble MCU pixels: nearest-neighbour chroma upsample + YCbCr->RGB.
         PROF_T0(tp);
-        int px0 = mx * blk_ * hmax_;
+        int px0 = mx * mcu_w;
         for (int py = 0; py < band_h_; py++) {
             uint8_t *out = band_ + (static_cast<size_t>(py) * band_w_ + px0) * out_ch_;
-            for (int px = 0; px < blk_ * hmax_; px++) {
-                int y0 = compbuf_[0][(py * comp_[0].v / vmax_) * (comp_[0].h * blk_) +
-                                     (px * comp_[0].h / hmax_)];
-                if (out_ch_ == 1) {
-                    *out++ = static_cast<uint8_t>(y0);
-                } else {
-                    int cb = compbuf_[1][(py * comp_[1].v / vmax_) * (comp_[1].h * blk_) +
-                                         (px * comp_[1].h / hmax_)] - 128;
-                    int cr = compbuf_[2][(py * comp_[2].v / vmax_) * (comp_[2].h * blk_) +
-                                         (px * comp_[2].h / hmax_)] - 128;
+            const uint8_t *yr = compbuf_[0] + (py >> vsh[0]) * cstride[0];
+            if (out_ch_ == 1) {
+                for (int px = 0; px < mcu_w; px++) *out++ = yr[px >> hsh[0]];
+            } else {
+                const uint8_t *cbr = compbuf_[1] + (py >> vsh[1]) * cstride[1];
+                const uint8_t *crr = compbuf_[2] + (py >> vsh[2]) * cstride[2];
+                for (int px = 0; px < mcu_w; px++) {
+                    int y0 = yr[px >> hsh[0]];
+                    int cb = cbr[px >> hsh[1]] - 128;
+                    int cr = crr[px >> hsh[2]] - 128;
                     *out++ = clamp8(y0 + ((91881 * cr) >> 16));
                     *out++ = clamp8(y0 - ((22554 * cb + 46802 * cr) >> 16));
                     *out++ = clamp8(y0 + ((116130 * cb) >> 16));
