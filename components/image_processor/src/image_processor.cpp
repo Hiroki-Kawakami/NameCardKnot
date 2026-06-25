@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "alloc.hpp"
+#include "pipeline.hpp"
 #include "rowsource.hpp"
 #include "sniff.hpp"
 #include "stream.hpp"
@@ -81,8 +82,7 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
     if (st != Status::Ok) return st;
 
-    // Pipeline (downscale -> color -> dither -> pack) lands in Phase 2.
-    return Status::UnsupportedFormat;
+    return run_pipeline(*dec, opts, out);
 }
 
 Status decode_file(const char *path, const Options &opts, Image &out) {

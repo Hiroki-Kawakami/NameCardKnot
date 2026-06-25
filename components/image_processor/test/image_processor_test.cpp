@@ -14,6 +14,8 @@
 
 // Internal headers (test/run.sh adds -I src) — white-box coverage.
 #include "alloc.hpp"
+#include "pipeline.hpp"
+#include "rowsource.hpp"
 #include "sniff.hpp"
 #include "stream.hpp"
 
@@ -146,6 +148,194 @@ static void test_entry_points() {
     CHECK(decode_file("/no/such/file.png", opts, img) == Status::OpenFailed);
 }
 
+// ---- Pipeline (synthetic RowSource) -----------------------------------------
+
+// Uniform-color source.
+struct SolidSource : RowSource {
+    uint8_t r_, g_, b_;
+    int cur_ = 0;
+    SolidSource(int w, int h, PixelKind k, uint8_t r, uint8_t g = 0, uint8_t b = 0)
+        : r_(r), g_(g), b_(b) { width = w; height = h; kind = k; }
+    bool next_row(uint8_t *dst) override {
+        if (cur_ >= height) return false;
+        for (int x = 0; x < width; x++) {
+            if (channels() == 1) dst[x] = r_;
+            else { dst[3 * x] = r_; dst[3 * x + 1] = g_; dst[3 * x + 2] = b_; }
+        }
+        cur_++;
+        return true;
+    }
+};
+
+// Gray source whose value depends only on the row (for vertical box tests).
+struct RowGradientSource : RowSource {
+    const uint8_t *row_vals_;  // height entries
+    int cur_ = 0;
+    RowGradientSource(int w, int h, const uint8_t *vals) : row_vals_(vals) {
+        width = w; height = h; kind = PixelKind::Gray8;
+    }
+    bool next_row(uint8_t *dst) override {
+        if (cur_ >= height) return false;
+        std::memset(dst, row_vals_[cur_], width);
+        cur_++;
+        return true;
+    }
+};
+
+// Reports more rows than it will deliver.
+struct TruncatedSource : RowSource {
+    int deliver_, cur_ = 0;
+    TruncatedSource(int w, int h, int deliver) : deliver_(deliver) {
+        width = w; height = h; kind = PixelKind::Gray8;
+    }
+    bool next_row(uint8_t *dst) override {
+        if (cur_ >= deliver_) return false;
+        std::memset(dst, 128, width);
+        cur_++;
+        return true;
+    }
+};
+
+static Options base_opts(uint16_t tw, uint16_t th) {
+    Options o;
+    o.target_w = tw;
+    o.target_h = th;
+    o.fit = Fit::Stretch;
+    o.dither = Dither::None;
+    o.levels = 16;
+    return o;
+}
+
+static double mean_l8(const Image &img) {
+    double s = 0;
+    size_t count = static_cast<size_t>(img.w) * img.h;
+    for (size_t i = 0; i < count; i++) s += img.data[i];  // L8 stride == w
+    return s / count;
+}
+
+static void test_pipeline_identity_solid() {
+    SolidSource src(8, 8, PixelKind::Gray8, 136);  // sits on 16-level grid
+    Options o = base_opts(8, 8);
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    CHECK(img.w == 8 && img.h == 8);
+    CHECK(img.format == OutFormat::L8 && img.stride == 8 && img.levels == 16);
+    bool uniform = true;
+    for (size_t i = 0; i < 64; i++) uniform &= img.data[i] == img.data[0];
+    CHECK(uniform);
+    CHECK(img.data[0] == 136);  // level 8 -> 8*17
+}
+
+static void test_pipeline_linear_vs_perceptual_downsample() {
+    // 2x1 column: white over black, averaged to a single pixel.
+    const uint8_t rows[2] = {255, 0};
+
+    Options perc = base_opts(1, 1);
+    perc.linear_downsample = false;
+    RowGradientSource s1(1, 2, rows);
+    Image a;
+    CHECK(run_pipeline(s1, perc, a) == Status::Ok);
+    CHECK(a.w == 1 && a.h == 1);
+    CHECK(a.data[0] >= 110 && a.data[0] <= 145);  // perceptual midpoint
+
+    Options lin = base_opts(1, 1);
+    lin.linear_downsample = true;
+    RowGradientSource s2(1, 2, rows);
+    Image b;
+    CHECK(run_pipeline(s2, lin, b) == Status::Ok);
+    CHECK(b.data[0] >= 170);  // linear average is photometrically brighter
+}
+
+static void test_pipeline_luma_ordering() {
+    Options o = base_opts(1, 1);
+    Image r, g, b;
+    SolidSource sr(1, 1, PixelKind::RGB888, 255, 0, 0);
+    SolidSource sg(1, 1, PixelKind::RGB888, 0, 255, 0);
+    SolidSource sb(1, 1, PixelKind::RGB888, 0, 0, 255);
+    CHECK(run_pipeline(sr, o, r) == Status::Ok);
+    CHECK(run_pipeline(sg, o, g) == Status::Ok);
+    CHECK(run_pipeline(sb, o, b) == Status::Ok);
+    CHECK(g.data[0] > r.data[0]);  // Rec709: green brightest, blue darkest
+    CHECK(r.data[0] > b.data[0]);
+}
+
+static void test_pipeline_error_diffusion_mean() {
+    SolidSource src(32, 32, PixelKind::Gray8, 128);
+    Options o = base_opts(32, 32);
+    o.dither = Dither::FloydSteinberg;
+    o.levels = 16;
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    // Only the two levels bracketing the input survive, and the mean is preserved.
+    bool only_two = true;
+    for (size_t i = 0; i < 32u * 32; i++) {
+        only_two &= (img.data[i] == 119 || img.data[i] == 136);  // levels 7 and 8
+    }
+    CHECK(only_two);
+    double m = mean_l8(img);
+    CHECK(m >= 124.0 && m <= 132.0);
+}
+
+static void test_pipeline_bayer_two_level() {
+    SolidSource src(8, 8, PixelKind::Gray8, 128);
+    Options o = base_opts(8, 8);
+    o.dither = Dither::Bayer8;
+    o.levels = 2;
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    bool binary = true;
+    for (size_t i = 0; i < 64; i++) binary &= (img.data[i] == 0 || img.data[i] == 255);
+    CHECK(binary);
+    double m = mean_l8(img);
+    CHECK(m >= 96.0 && m <= 160.0);  // ~half on
+}
+
+static void test_pipeline_pack_i1() {
+    SolidSource src(16, 2, PixelKind::Gray8, 230);  // bright -> level 1
+    Options o = base_opts(16, 2);
+    o.out = OutFormat::I1;
+    o.levels = 2;
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    CHECK(img.format == OutFormat::I1 && img.stride == 2);
+    CHECK(img.data[0] == 0xFF && img.data[1] == 0xFF);  // all bits set
+}
+
+static void test_pipeline_pack_i4() {
+    SolidSource src(8, 2, PixelKind::Gray8, 136);  // level 8
+    Options o = base_opts(8, 2);
+    o.out = OutFormat::I4;
+    o.levels = 16;
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    CHECK(img.format == OutFormat::I4 && img.stride == 4);
+    CHECK(img.data[0] == 0x88);  // two pixels of level 8
+}
+
+static void test_pipeline_invert() {
+    SolidSource src(4, 4, PixelKind::Gray8, 255);
+    Options o = base_opts(4, 4);
+    o.invert = true;
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Ok);
+    CHECK(img.data[0] == 0);  // white inverted to black
+}
+
+static void test_pipeline_truncated() {
+    TruncatedSource src(4, 4, 2);  // claims 4 rows, delivers 2
+    Options o = base_opts(4, 4);
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::Truncated);
+    CHECK(img.data == nullptr);
+}
+
+static void test_pipeline_bad_args() {
+    SolidSource src(8, 8, PixelKind::Gray8, 100);
+    Options o = base_opts(0, 0);  // Stretch needs both dims
+    Image img;
+    CHECK(run_pipeline(src, o, img) == Status::BadArgument);
+}
+
 int main() {
     test_status_str();
     test_alloc_roundtrip();
@@ -157,6 +347,17 @@ int main() {
     test_sniff();
     test_check_src_size();
     test_entry_points();
+
+    test_pipeline_identity_solid();
+    test_pipeline_linear_vs_perceptual_downsample();
+    test_pipeline_luma_ordering();
+    test_pipeline_error_diffusion_mean();
+    test_pipeline_bayer_two_level();
+    test_pipeline_pack_i1();
+    test_pipeline_pack_i4();
+    test_pipeline_invert();
+    test_pipeline_truncated();
+    test_pipeline_bad_args();
 
     if (g_failures == 0) {
         std::printf("image_processor: all tests passed\n");
