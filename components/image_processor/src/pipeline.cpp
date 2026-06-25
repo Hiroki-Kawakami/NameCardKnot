@@ -41,24 +41,66 @@ static Status compute_dst(int sw, int sh, const Options &opts, int &dw, int &dh)
     return Status::Ok;
 }
 
-// Area-average one source intensity row into the destination width.
-static void hreduce(const uint16_t *irow, int sw, uint16_t *hrow, int dw) {
+// Precomputed horizontal box coverage. The source→dst mapping is identical for
+// every row, so the (double) geometry is computed once here; the per-row reduce
+// is then integer-only. For each dst x: a contiguous run of source pixels
+// [src[x], src[x]+count) with Q16 weights, normalized by wsum[x].
+struct HBox {
+    std::unique_ptr<int[]>      off;   // dw+1 prefix offsets into w[]
+    std::unique_ptr<int[]>      src;   // dw: first source index
+    std::unique_ptr<uint32_t[]> w;     // flattened weights (Q16)
+    std::unique_ptr<uint32_t[]> wsum;  // dw: total weight per dst x
+};
+
+static bool build_hbox(int sw, int dw, HBox &hb) {
+    hb.off.reset(new (std::nothrow) int[dw + 1]);
+    hb.src.reset(new (std::nothrow) int[dw]);
+    hb.wsum.reset(new (std::nothrow) uint32_t[dw]);
+    if (!hb.off || !hb.src || !hb.wsum) return false;
+
+    hb.off[0] = 0;
     for (int x = 0; x < dw; x++) {
         double fx0 = static_cast<double>(x) * sw / dw;
         double fx1 = static_cast<double>(x + 1) * sw / dw;
         int sx0 = static_cast<int>(fx0);
         int sx1 = static_cast<int>(std::ceil(fx1));
-        uint64_t sum = 0, wsum = 0;
-        for (int sx = sx0; sx < sx1; sx++) {
-            int cx = sx < 0 ? 0 : (sx >= sw ? sw - 1 : sx);
-            double lo = std::max(fx0, static_cast<double>(sx));
-            double hi = std::min(fx1, static_cast<double>(sx + 1));
-            uint64_t wi = static_cast<uint64_t>(std::llround((hi - lo) * 65536.0));
-            if (!wi) continue;
-            sum += static_cast<uint64_t>(irow[cx]) * wi;
-            wsum += wi;
+        if (sx0 < 0) sx0 = 0;
+        if (sx1 > sw) sx1 = sw;
+        if (sx1 <= sx0) sx1 = sx0 + 1;  // always cover at least one source pixel
+        hb.src[x] = sx0;
+        hb.off[x + 1] = hb.off[x] + (sx1 - sx0);
+    }
+
+    hb.w.reset(new (std::nothrow) uint32_t[hb.off[dw]]);
+    if (!hb.w) return false;
+    for (int x = 0; x < dw; x++) {
+        double fx0 = static_cast<double>(x) * sw / dw;
+        double fx1 = static_cast<double>(x + 1) * sw / dw;
+        int sx0 = hb.src[x];
+        int cnt = hb.off[x + 1] - hb.off[x];
+        uint32_t ws = 0;
+        for (int i = 0; i < cnt; i++) {
+            double lo = std::max(fx0, static_cast<double>(sx0 + i));
+            double hi = std::min(fx1, static_cast<double>(sx0 + i + 1));
+            uint32_t wi = static_cast<uint32_t>(std::llround((hi - lo) * 65536.0));
+            if (!wi) wi = 1;
+            hb.w[hb.off[x] + i] = wi;
+            ws += wi;
         }
-        hrow[x] = wsum ? static_cast<uint16_t>(sum / wsum) : irow[std::min(sx0, sw - 1)];
+        hb.wsum[x] = ws;
+    }
+    return true;
+}
+
+// Integer area-average of one source intensity row into the destination width.
+static void hreduce(const uint16_t *irow, uint16_t *hrow, int dw, const HBox &hb) {
+    for (int x = 0; x < dw; x++) {
+        const uint32_t *w = hb.w.get() + hb.off[x];
+        const uint16_t *p = irow + hb.src[x];
+        int cnt = hb.off[x + 1] - hb.off[x];
+        uint64_t sum = 0;
+        for (int i = 0; i < cnt; i++) sum += static_cast<uint64_t>(p[i]) * w[i];
+        hrow[x] = static_cast<uint16_t>(sum / hb.wsum[x]);
     }
 }
 
@@ -100,6 +142,12 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         return Status::OutOfMemory;
     }
 
+    HBox hb;
+    if (!build_hbox(sw, dw, hb)) {
+        img_free(buf);
+        return Status::OutOfMemory;
+    }
+
     auto finalize_row = [&](int y, uint64_t vwsum) {
         PROF_T0(tf);
         for (int x = 0; x < dw; x++) {
@@ -126,7 +174,7 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out) {
         }
         PROF_T0(tt);
         color.to_intensity(srow.get(), sw, ch, irow.get());
-        hreduce(irow.get(), sw, hrow.get(), dw);
+        hreduce(irow.get(), hrow.get(), dw, hb);
 
         double top = sy, bot = sy + 1;
         while (y < dh) {

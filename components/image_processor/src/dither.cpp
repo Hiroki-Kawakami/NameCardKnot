@@ -5,7 +5,6 @@
 
 #include "dither.hpp"
 
-#include <cmath>
 #include <cstring>
 
 namespace imgproc {
@@ -62,56 +61,55 @@ bool Ditherer::init(const Options &opts, int width) {
     serpentine_ = opts.serpentine;
     ring0_ = 0;
 
+    // quantize / reconstruct LUTs (rlut matches the L8 packer's level->gray).
+    int d = n_ - 1;
+    for (int v = 0; v < 256; v++) {
+        int level = (v * d * 2 + 255) / 510;  // round(v*(n-1)/255)
+        if (level > d) level = d;
+        qlut_[v] = static_cast<uint8_t>(level);
+    }
+    for (int l = 0; l < n_; l++) rlut_[l] = static_cast<uint8_t>((l * 255 + d / 2) / d);
+
     switch (method_) {
         case Dither::None:
-        case Dither::Bayer2:
-        case Dither::Bayer4:
-        case Dither::Bayer8:
             err_.reset();
             break;
+        case Dither::Bayer2:
+        case Dither::Bayer4:
+        case Dither::Bayer8: {
+            err_.reset();
+            bayer_for(method_, &bmat_, &bm_);
+            int cells = bm_ * bm_;
+            for (int i = 0; i < cells; i++)  // threshold in level-step units, ×255
+                bthr_[i] = (255 * (2 * bmat_[i] + 1) - 255 * cells) / (2 * cells);
+            break;
+        }
         default:
-            err_.reset(new (std::nothrow) float[3 * static_cast<size_t>(width)]());
+            err_.reset(new (std::nothrow) int32_t[3 * static_cast<size_t>(width)]());
             if (!err_) return false;
             break;
     }
     return true;
 }
 
-int Ditherer::quantize(float v, float *recon) const {
-    float step = 255.0f / (n_ - 1);
-    if (v < 0.0f) v = 0.0f;
-    else if (v > 255.0f) v = 255.0f;
-    int level = static_cast<int>(std::lround(v / step));
-    if (level < 0) level = 0;
-    else if (level > n_ - 1) level = n_ - 1;
-    *recon = level * step;
-    return level;
-}
-
 void Ditherer::ordered_row(const uint8_t *gray, int y, uint8_t *out) {
     if (method_ == Dither::None) {
-        float r;
-        for (int x = 0; x < width_; x++) out[x] = static_cast<uint8_t>(quantize(gray[x], &r));
+        for (int x = 0; x < width_; x++) out[x] = qlut_[gray[x]];
         return;
     }
-    const uint8_t *mat;
-    int M;
-    bayer_for(method_, &mat, &M);
-    float scale = static_cast<float>(n_ - 1);
+    int d = n_ - 1;
     for (int x = 0; x < width_; x++) {
-        float t = (mat[(y % M) * M + (x % M)] + 0.5f) / (M * M) - 0.5f;  // [-0.5, 0.5)
-        float fl = gray[x] / 255.0f * scale;
-        int level = static_cast<int>(std::lround(fl + t));
-        if (level < 0) level = 0;
-        else if (level > n_ - 1) level = n_ - 1;
+        int num = gray[x] * d + bthr_[(y % bm_) * bm_ + (x % bm_)];
+        int level = num <= 0 ? 0 : (num * 2 + 255) / 510;  // round(num/255)
+        if (level > d) level = d;
         out[x] = static_cast<uint8_t>(level);
     }
 }
 
 void Ditherer::diffuse_row(const uint8_t *gray, int y, uint8_t *out) {
-    float *cur = err_.get() + static_cast<size_t>(ring0_) * width_;
-    float *n1  = err_.get() + static_cast<size_t>((ring0_ + 1) % 3) * width_;
-    float *n2  = err_.get() + static_cast<size_t>((ring0_ + 2) % 3) * width_;
+    int32_t *cur = err_.get() + static_cast<size_t>(ring0_) * width_;
+    int32_t *n1  = err_.get() + static_cast<size_t>((ring0_ + 1) % 3) * width_;
+    int32_t *n2  = err_.get() + static_cast<size_t>((ring0_ + 2) % 3) * width_;
 
     DiffKernel k = kernel_for(method_);
     int dir = (serpentine_ && (y & 1)) ? -1 : 1;
@@ -119,15 +117,16 @@ void Ditherer::diffuse_row(const uint8_t *gray, int y, uint8_t *out) {
     int xend = dir > 0 ? width_ : -1;
 
     for (int x = xstart; x != xend; x += dir) {
-        float recon;
-        float v = gray[x] + cur[x];
-        int level = quantize(v, &recon);
+        int vf = (gray[x] << 8) + cur[x];  // value in 1/256 units
+        if (vf < 0) vf = 0;
+        else if (vf > (255 << 8)) vf = 255 << 8;
+        int level = qlut_[(vf + 128) >> 8];
         out[x] = static_cast<uint8_t>(level);
-        float e = v - recon;
+        int ef = vf - (rlut_[level] << 8);  // fixed-point error
         for (int i = 0; i < k.count; i++) {
             int tx = x + dir * k.cells[i].dx;
             if (tx < 0 || tx >= width_) continue;
-            float add = e * k.cells[i].w / k.div;
+            int add = ef * k.cells[i].w / k.div;
             switch (k.cells[i].dy) {
                 case 0: cur[tx] += add; break;
                 case 1: n1[tx] += add; break;
@@ -136,7 +135,7 @@ void Ditherer::diffuse_row(const uint8_t *gray, int y, uint8_t *out) {
         }
     }
 
-    std::memset(cur, 0, sizeof(float) * width_);  // consumed; reused as n2 next row
+    std::memset(cur, 0, sizeof(int32_t) * width_);  // consumed; reused as n2 next row
     ring0_ = (ring0_ + 1) % 3;
 }
 

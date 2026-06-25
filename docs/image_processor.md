@@ -104,12 +104,24 @@ out). Timing source is `esp_timer_get_time()` on device, `std::chrono` on host
 
 - **decode** — `RowSource::next_row` (inflate / JPEG IDCT+Huffman), inclusive of
   **io** (the raw SD/file reads); `compute = decode − io`.
-- **color+down** — linearize + luma + box downscale. Uses `double` math, so this
-  grows on the FPU-limited device relative to the host numbers above.
+- **color+down** — linearize + luma + box downscale.
 - **dither** — finalize + dither + pack.
 
 Use it to decide what to optimize before touching code — the host and device
 splits differ, so measure on hardware.
+
+### Hot-path integerization
+
+The first device profile was dominated by `double` math (`double` is software-
+emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
+
+- **Horizontal box weights are precomputed once** (`build_hbox`, integer Q16
+  weights) instead of recomputed with `double` per source row, so `hreduce` is an
+  integer multiply-accumulate in the hot loop. Only the vertical geometry keeps a
+  few `double`s per *source row* (O(rows), negligible).
+- **Dither is integer** (`src/dither.cpp`): quantize is a 256-entry LUT, error
+  diffusion carries fixed-point (`<<8`) error in `int32` buffers, Bayer thresholds
+  are integers — no per-pixel `float`.
 
 ## Known optimization opportunities (not yet done)
 
