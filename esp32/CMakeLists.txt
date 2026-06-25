@@ -8,6 +8,6 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/ui_framework
     ${CMAKE_CURRENT_SOURCE_DIR}/../app)
 # Select the BSP board for this target (no runtime detection; one target = one board).
-set(BSP_BOARD paper_s3 CACHE STRING "esp-devkit BSP board")
+set(BSP_BOARD paper CACHE STRING "esp-devkit BSP board")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(NameCardKnot)

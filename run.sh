@@ -25,8 +25,11 @@ case "$TARGET" in
   esp32s3)
     idf.py -C esp32s3 flash monitor
     ;;
+  esp32)
+    idf.py -C esp32 flash monitor
+    ;;
   *)
-    echo "Usage: $0 [simulator|simverify <script>|esp32s3]"
+    echo "Usage: $0 [simulator|simverify <script>|esp32s3|esp32]"
     exit 1
     ;;
 esac
