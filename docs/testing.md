@@ -84,3 +84,26 @@ depends only on pthread + libc. Everything board- or app-specific is injected:
   (e.g. fault/state injection) from **sim-only** code. Keeps app-specific commands
   out of the core (the original harness hard-coded wifi commands — don't repeat
   that). A handler returns false to stop the run, like `quit`.
+
+## Host unit tests — `image_processor`
+
+Beyond UI verification, the image library has plain host unit tests (no ESP-IDF,
+no LVGL, no SDL — the SoC-free pipeline + decoders only), mirroring the
+`esp-devkit/bsp/driver/test` pattern:
+
+```sh
+nix develop -c sh components/image_processor/test/run.sh
+```
+
+`run.sh` compiles every `src/*.cpp` plus `test/image_processor_test.cpp` with g++
+and runs the assertions. Anything device-only in `src/` must stay fenced behind
+`ESP_PLATFORM` so it compiles out on the host (only the allocator does today).
+
+Coverage: allocator/`Image` RAII, `InputStream` (read/non-consuming peek),
+`sniff` + size guard, the pipeline against synthetic `RowSource`s (luma ordering,
+linear-vs-perceptual averaging, error-diffusion mean preservation, L8/I4/I1
+packing, invert, truncation), and the PNG/JPEG decoders against real fixtures
+(exact pixels for PNG, tolerance for lossy JPEG, plus a decode-time-downscale
+check). Fixtures are generated — see `gen_fixtures.py` / `gen_jpeg.c` and
+[`image_processor.md`](image_processor.md). The end-to-end app display is checked
+by `simulator/verify/namecard.txt` (opens `test.png`, captures the decoded frame).

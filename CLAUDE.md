@@ -11,15 +11,18 @@ background task, with a `BSP_EPD_MODE_FULL` flag for ghost-clear full flushes;
 GT911 touch over I2C via the in-tree `gt911` polling driver). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
 binding, and **SD-card access is in** (`bsp_sd_*`: FAT-over-SDSPI on device, a
-host-directory redirect in the simulator). The app is a small screen set (home,
-SD file browser, name card).
+host-directory redirect in the simulator). The name-card image path uses an
+**in-tree, dependency-free `image_processor`** (JPEG/PNG decode → grayscale →
+dither → EPD-ready L8). The app is a small screen set (home, SD file browser,
+name card).
 
 > **Keep the docs current.** When you change the build flow, the BSP surface
 > (`bsp_*`), the simulator backend, add a board/target, or hit a non-obvious
 > gotcha, update CLAUDE.md (and the right `docs/` file) in the same change — they
 > are the handoff to the next session. Keep CLAUDE.md lean: deep verification
-> detail lives in [`docs/testing.md`](docs/testing.md) and gotchas in
-> [`docs/gotchas.md`](docs/gotchas.md) — link, don't inline.
+> detail lives in [`docs/testing.md`](docs/testing.md), gotchas in
+> [`docs/gotchas.md`](docs/gotchas.md), and the image pipeline in
+> [`docs/image_processor.md`](docs/image_processor.md) — link, don't inline.
 
 > **Comment only what earns it.** Write a code comment when its absence would
 > cause a concrete mistake later — not to narrate the obvious or to hedge. In
@@ -58,6 +61,12 @@ this repo.
 app/                  # SHARED app logic (NameCardKnot.cpp: app_entry + the BSP<->LVGL binding)
   screens/            #   Screen subclasses (Home, FileBrowser, NameCard) loaded via screen_manager
   resources/          #   generated LVGL assets (resources.{c,h} aggregates them into `R`); see below
+  lv_image_adapter.hpp #  imgproc::Image -> lv_image_dsc_t (keeps image_processor LVGL-free)
+components/           # APP-specific reusable components (container; each subdir is a component)
+  image_processor/    #   self-contained JPEG/PNG decode -> grayscale/dither -> L8/I4/I1 → docs/image_processor.md
+    inc/              #     public API: image_processor.hpp (Options/Image/Status/decode_*)
+    src/              #     pipeline + in-tree decoders (inflate, png, baseline jpeg); no external deps
+    test/             #     host unit tests (run.sh, g++) + fixture generators (gen_fixtures.py, gen_jpeg.c)
 simulator/            # SIMULATOR build root
   main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
   verify/             #   sim-harness scripts; captures land in verify/out/ (gitignored)
@@ -79,8 +88,9 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     sim/lv_conf.h     #     default LVGL config for the simulator build (overridable)
 ```
 
-Rule of thumb: shared/reusable → `esp-devkit/` (the submodule); app-specific →
-`app/`; target-only entry → that target's build root.
+Rule of thumb: panel/board-reusable → `esp-devkit/` (the submodule); app-specific
+but reusable across screens → `components/` (in this repo); app glue → `app/`;
+target-only entry → that target's build root.
 
 ### Component wiring
 
@@ -95,10 +105,14 @@ simulator component → add it to `SIMULATOR_COMPONENTS` in `simulator/CMakeList
 library: its simulator branch `FetchContent`s LVGL and links it onto the
 `simulator` target directly — the shim only folds sources, not external targets.)
 
-On **device**, `esp32s3/CMakeLists.txt` lists `../esp-devkit/bsp` and
-`../esp-devkit/ui_framework` in `EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness`
-are host-only), and any component that `#include`s `bsp.h` must name `bsp` in its
-`REQUIRES` (e.g. `app/CMakeLists.txt`, which also names `ui_framework`). The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
+On **device**, `esp32s3/CMakeLists.txt` lists `../components` (a *container* — each
+subdir is a component, so new components there are auto-discovered, no edit
+needed), `../esp-devkit/bsp`, and `../esp-devkit/ui_framework` in
+`EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness` are host-only), and any
+component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES` (e.g.
+`app/CMakeLists.txt`, which also names `ui_framework` and `image_processor`).
+(`image_processor` is in `SIMULATOR_COMPONENTS` for the host build and has no
+device `REQUIRES` beyond the always-present `heap` for `heap_caps_*`.) The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
 and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is the
 in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
 `PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for
@@ -253,7 +267,10 @@ and is loaded via the `screen_manager`. `app_entry()` loads the first screen
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
 descending into subdirs via an internal path stack (so `back()` pops the stack
-before leaving the screen).
+before leaving the screen). `NameCardScreen` decodes the selected SD image with
+`imgproc::decode_file` (not LVGL's built-in decoders) at the display resolution,
+owns the resulting `imgproc::Image`, and shows it 1:1 via `lv_image` through
+`lv_image_adapter.hpp`; decode failures render a `Status` label instead.
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
@@ -264,8 +281,29 @@ Resources R` that app code reads (`R.icon.*`, `R.font.*`). `Lucide_License.txt` 
 the ISC license for the icon set. All of `app/` is GLOB'd into the build, so new
 files are picked up after a cmake re-run (see `app/CMakeLists.txt`).
 
+## Image processing — `components/image_processor`
+
+Self-contained, **LVGL-free and dependency-free** library that turns an SD/buffer
+JPEG or PNG into an EPD-ready buffer. One streaming pipeline (`run_pipeline`):
+in-tree decoder (`RowSource`) → box downscale → color convert (linearize → Rec709
+luma → gamma) → dither (Bayer / error-diffusion, 2 or 16 levels) → pack
+(L8 high-nibble = EPD gray / I4 / I1). It streams row-by-row, never materializing
+the full-resolution source, so large images no longer OOM silently — they return a
+`Status`. The app calls `imgproc::decode_file`/`decode_buffer`; the BSP↔LVGL-style
+binding to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`, keeping the
+component panel-/UI-agnostic.
+
+Both decoders are written in-tree (no zlib/libjpeg/lodepng): a pull-based
+streaming `inflate` for PNG and a baseline-only JPEG decoder that downscales while
+decoding (1/1..1/8). The SoC-free pipeline + decoders are host unit-tested via
+`components/image_processor/test/run.sh` (g++, no ESP-IDF), with fixtures built by
+`gen_fixtures.py` (PNG, stdlib zlib) and `gen_jpeg.c` (JPEG, libjpeg). Design
+detail, option semantics, and trade-offs: [`docs/image_processor.md`](docs/image_processor.md).
+
 ## Verification & gotchas
 
 - **Simulator UI verification** (sim harness, script commands, the DI model):
   [`docs/testing.md`](docs/testing.md).
-- **Gotchas** (build/env, EPD, threading): [`docs/gotchas.md`](docs/gotchas.md).
+- **Image-processor host unit tests** (decode/pipeline, fixtures):
+  [`docs/testing.md`](docs/testing.md).
+- **Gotchas** (build/env, EPD, threading, image decode): [`docs/gotchas.md`](docs/gotchas.md).

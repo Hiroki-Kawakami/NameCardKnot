@@ -1,13 +1,12 @@
-# Open an image from the SD browser and confirm NameCardScreen displays it.
+# Open test.png from the SD browser and confirm NameCardScreen decodes and
+# displays it via image_processor (decode -> grayscale -> dither -> L8).
 # tap takes raw panel coords (960x540); logical screen is 540x960 rotated 90:
 # panel_x = logical_y, panel_y = 540 - logical_x.
 settle
 tap 645 397                                      # home: "Open from SD"
 settle
-tap 920 42                                        # listing: next page
-settle
 capture simulator/verify/out/namecard_list.jpg
-tap 372 270                                       # page 2 row 3: "test.png"
+tap 450 270                                       # listing row 5: "test.png" (logical ~270,450)
 settle
 capture simulator/verify/out/namecard.jpg
 quit

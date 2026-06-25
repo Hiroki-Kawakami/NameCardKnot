@@ -130,3 +130,37 @@ hit new ones.
   need match — a sim `lv_conf.h` from a slightly newer 9.x is fine (LVGL fills
   unknown knobs with defaults). Override the sim config dir with the
   `UI_FRAMEWORK_LV_CONF_DIR` CMake cache var before configuring.
+
+## Image decoding (`image_processor`)
+
+- **An EPD draw alone still shows nothing.** `image_processor` only produces the
+  L8 buffer; `NameCardScreen` relies on the normal flush → `bsp_display_refresh`
+  path (and `QUALITY_FULL` in `onAppear`) to paint it. Same EPD rule as everything
+  else above.
+- **Dither at the display resolution, show 1:1.** Decode to the on-screen size
+  (`target_w/h` = display resolution) and let `lv_image` show it without scaling.
+  If LVGL rescales a dithered image the grain turns to mush — the dither pattern is
+  only valid at the exact pixel grid it was computed for.
+- **16 levels land in the high nibble on purpose.** L8 packs `level*255/(N-1)`; for
+  N=16 that is `level*17`, so the byte's top nibble equals the level and maps 1:1
+  onto the panel's 4-bit gray. `levels=2`→`FAST`, `levels=16`→`QUALITY`. Don't
+  "normalize" L8 values elsewhere or you desync from the panel.
+- **A mid-decode failure surfaces as `Truncated`, not the real cause.**
+  `RowSource::next_row` is boolean, so the pipeline maps any decoder error during
+  row production (corrupt deflate, bad Huffman) to `Status::Truncated`. `open()`
+  still returns precise statuses (`UnsupportedFormat`/`DecodeError`/…).
+- **Decoders are baseline/8-bit only — by design.** PNG: no interlace, no 16-bit.
+  JPEG: baseline SOF0 only (progressive/arithmetic/16-bit/CMYK → `UnsupportedFormat`),
+  chroma sampling ≤ 2×2. These return cleanly from `open()`; they don't crash.
+- **The in-tree `inflate` is pull-based and resumes mid-block.** It yields exactly
+  the bytes asked for and continues a back-reference copy across calls. The subtle
+  bug to avoid (already fixed): when a copy fills the output buffer *exactly*
+  (`produced==n`, `copy_rem_==0`), re-check the loop bound before decoding the next
+  symbol or you emit one byte too many.
+- **Regenerate fixtures, don't hand-edit them.** `test/png_fixtures.h` and
+  `test/jpeg_fixtures.h` are generated (`gen_fixtures.py` via stdlib zlib;
+  `gen_jpeg.c` via libjpeg — note `jpeglib.h` needs `<stdio.h>`/`<stddef.h>`
+  included *before* it). Commit the regenerated header.
+- **GLOB still needs a cmake re-configure.** `image_processor/CMakeLists.txt` globs
+  `src/*.c{,pp}`; after adding a source, delete `build/` (sim) or let `idf.py`
+  reconfigure — the same caveat as `app/`.
