@@ -15,9 +15,11 @@
 // Internal headers (test/run.sh adds -I src) — white-box coverage.
 #include "alloc.hpp"
 #include "pipeline.hpp"
+#include "png.hpp"
 #include "rowsource.hpp"
 #include "sniff.hpp"
 #include "stream.hpp"
+#include "png_fixtures.h"
 
 using namespace imgproc;
 
@@ -140,12 +142,96 @@ static void test_entry_points() {
     const uint8_t garbage[] = {0x00, 0x01, 0x02, 0x03};
     CHECK(decode_buffer(garbage, sizeof garbage, opts, img) == Status::UnsupportedFormat);
 
-    // Recognized container, but the decoder is not wired until Phase 3/4.
+    // Recognized container, but only the signature: open() runs out of data.
     const uint8_t png_sig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
-    CHECK(decode_buffer(png_sig, sizeof png_sig, opts, img) == Status::UnsupportedFormat);
+    CHECK(decode_buffer(png_sig, sizeof png_sig, opts, img) == Status::Truncated);
 
     CHECK(decode_file(nullptr, opts, img) == Status::BadArgument);
     CHECK(decode_file("/no/such/file.png", opts, img) == Status::OpenFailed);
+}
+
+// ---- PNG decoder (exact pixels, decoder in isolation) -----------------------
+
+static void test_png_gray() {
+    BufferInputStream in(kPngGray2x2, sizeof kPngGray2x2);
+    PngDecoder dec;
+    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.width == 2 && dec.height == 2);
+    CHECK(dec.kind == PixelKind::Gray8);
+    uint8_t row[2];
+    CHECK(dec.next_row(row) && row[0] == 0 && row[1] == 255);
+    CHECK(dec.next_row(row) && row[0] == 128 && row[1] == 64);
+    CHECK(!dec.next_row(row));
+}
+
+static void test_png_rgb() {
+    BufferInputStream in(kPngRgb2x2, sizeof kPngRgb2x2);
+    PngDecoder dec;
+    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.kind == PixelKind::RGB888);
+    uint8_t row[6];
+    CHECK(dec.next_row(row));
+    CHECK(row[0] == 255 && row[1] == 0 && row[2] == 0);    // red
+    CHECK(row[3] == 0 && row[4] == 255 && row[5] == 0);    // green
+    CHECK(dec.next_row(row));
+    CHECK(row[0] == 0 && row[1] == 0 && row[2] == 255);    // blue
+    CHECK(row[3] == 255 && row[4] == 255 && row[5] == 255);// white
+}
+
+static void test_png_palette() {
+    BufferInputStream in(kPngPalette2x2, sizeof kPngPalette2x2);
+    PngDecoder dec;
+    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.kind == PixelKind::RGB888);
+    uint8_t row[6];
+    CHECK(dec.next_row(row));
+    CHECK(row[0] == 255 && row[1] == 0 && row[2] == 0);    // index 0 -> red
+    CHECK(row[3] == 0 && row[4] == 255 && row[5] == 0);    // index 1 -> green
+    CHECK(dec.next_row(row));
+    CHECK(row[0] == 0 && row[1] == 0 && row[2] == 255);    // index 2 -> blue
+}
+
+static void test_png_rgba_composite() {
+    BufferInputStream in(kPngRgba2x2, sizeof kPngRgba2x2);
+    PngDecoder dec;
+    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.kind == PixelKind::RGB888);
+    uint8_t row[6];
+    CHECK(dec.next_row(row));
+    // (200,100,50) over white at a=128: (c*128 + 255*127 + 127)/255.
+    CHECK(row[0] == 227 && row[1] == 177 && row[2] == 152);
+    CHECK(row[3] == 10 && row[4] == 20 && row[5] == 30);   // a=255 opaque
+    CHECK(dec.next_row(row));
+    CHECK(row[0] == 255 && row[1] == 255 && row[2] == 255);// a=0 -> white
+}
+
+static void test_png_gradient_inflate() {
+    BufferInputStream in(kPngGrad16, sizeof kPngGrad16);
+    PngDecoder dec;
+    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.width == 16 && dec.height == 16);
+    uint8_t row[16];
+    int y = 0;
+    bool ok = true;
+    while (dec.next_row(row)) {
+        for (int x = 0; x < 16; x++) ok &= row[x] == ((x * 16 + y * 4) & 0xFF);
+        y++;
+    }
+    CHECK(ok);
+    CHECK(y == 16);
+}
+
+static void test_png_through_pipeline() {
+    Options o;
+    o.target_w = 2;
+    o.target_h = 2;
+    o.fit = Fit::Stretch;
+    o.dither = Dither::None;
+    Image img;
+    CHECK(decode_buffer(kPngRgb2x2, sizeof kPngRgb2x2, o, img) == Status::Ok);
+    CHECK(img.w == 2 && img.h == 2 && img.format == OutFormat::L8);
+    // Red sits above blue in luminance (Rec709).
+    CHECK(img.data[0] > img.data[2]);
 }
 
 // ---- Pipeline (synthetic RowSource) -----------------------------------------
@@ -358,6 +444,13 @@ int main() {
     test_pipeline_invert();
     test_pipeline_truncated();
     test_pipeline_bad_args();
+
+    test_png_gray();
+    test_png_rgb();
+    test_png_palette();
+    test_png_rgba_composite();
+    test_png_gradient_inflate();
+    test_png_through_pipeline();
 
     if (g_failures == 0) {
         std::printf("image_processor: all tests passed\n");
