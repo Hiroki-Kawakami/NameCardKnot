@@ -39,25 +39,28 @@ static uint8_t composite_white(uint8_t c, uint8_t a) {
     return static_cast<uint8_t>((c * a + 255 * (255 - a) + 127) / 255);
 }
 
-int PngDecoder::IdatSource::get() {
+const uint8_t *PngDecoder::IdatSource::refill(size_t *n) {
     while (remaining == 0) {
-        if (done) return -1;
+        if (done) { *n = 0; return nullptr; }
         uint8_t hdr[8];  // CRC of the finished chunk (4) + next length (4)
-        if (in->read(hdr, 8) != 8) { done = true; return -1; }
+        if (in->read(hdr, 8) != 8) { done = true; *n = 0; return nullptr; }
         uint32_t len = be32(hdr + 4);
         uint8_t type[4];
-        if (in->read(type, 4) != 4) { done = true; return -1; }
+        if (in->read(type, 4) != 4) { done = true; *n = 0; return nullptr; }
         if (type_is(type, 'I', 'D', 'A', 'T')) {
             remaining = len;
         } else {
             done = true;  // first non-IDAT chunk ends the image data
-            return -1;
+            *n = 0;
+            return nullptr;
         }
     }
-    uint8_t b;
-    if (in->read(&b, 1) != 1) { done = true; return -1; }
-    remaining--;
-    return b;
+    size_t want = remaining < sizeof buf ? remaining : sizeof buf;
+    size_t got = in->read(buf, want);
+    remaining -= static_cast<uint32_t>(got);
+    if (got == 0) { done = true; *n = 0; return nullptr; }
+    *n = got;
+    return buf;
 }
 
 Status PngDecoder::open(InputStream &in, const Options &opts) {
@@ -167,20 +170,32 @@ static uint8_t paeth(uint8_t a, uint8_t b, uint8_t c) {
 }
 
 void PngDecoder::unfilter(uint8_t filter, const uint8_t *src, uint8_t *dst) {
+    // Filter is constant per scanline, so branch once here (not per byte) and run
+    // the bpp prefix (no left neighbour) separately from the body.
+    const uint8_t *prev = prev_.get();
     int bpp = filt_bpp_;
-    for (size_t i = 0; i < rowbytes_; i++) {
-        uint8_t a = i >= static_cast<size_t>(bpp) ? dst[i - bpp] : 0;
-        uint8_t b = prev_[i];
-        uint8_t c = i >= static_cast<size_t>(bpp) ? prev_[i - bpp] : 0;
-        uint8_t x = src[i];
-        switch (filter) {
-            case 0: dst[i] = x; break;
-            case 1: dst[i] = static_cast<uint8_t>(x + a); break;
-            case 2: dst[i] = static_cast<uint8_t>(x + b); break;
-            case 3: dst[i] = static_cast<uint8_t>(x + ((a + b) >> 1)); break;
-            case 4: dst[i] = static_cast<uint8_t>(x + paeth(a, b, c)); break;
-            default: dst[i] = x; break;
-        }
+    size_t rb = rowbytes_;
+    switch (filter) {
+        case 1:  // Sub
+            for (int i = 0; i < bpp; i++) dst[i] = src[i];
+            for (size_t i = bpp; i < rb; i++) dst[i] = static_cast<uint8_t>(src[i] + dst[i - bpp]);
+            break;
+        case 2:  // Up
+            for (size_t i = 0; i < rb; i++) dst[i] = static_cast<uint8_t>(src[i] + prev[i]);
+            break;
+        case 3:  // Average
+            for (int i = 0; i < bpp; i++) dst[i] = static_cast<uint8_t>(src[i] + (prev[i] >> 1));
+            for (size_t i = bpp; i < rb; i++)
+                dst[i] = static_cast<uint8_t>(src[i] + ((dst[i - bpp] + prev[i]) >> 1));
+            break;
+        case 4:  // Paeth
+            for (int i = 0; i < bpp; i++) dst[i] = static_cast<uint8_t>(src[i] + prev[i]);
+            for (size_t i = bpp; i < rb; i++)
+                dst[i] = static_cast<uint8_t>(src[i] + paeth(dst[i - bpp], prev[i], prev[i - bpp]));
+            break;
+        default:  // 0 = None
+            std::memcpy(dst, src, rb);
+            break;
     }
 }
 

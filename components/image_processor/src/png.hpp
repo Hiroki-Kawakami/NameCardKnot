@@ -30,7 +30,8 @@ private:
         InputStream *in = nullptr;
         uint32_t remaining = 0;  // bytes left in the current IDAT chunk
         bool done = false;
-        int get() override;
+        uint8_t buf[2048];       // block handed to the inflater
+        const uint8_t *refill(size_t *n) override;
     };
 
     void unfilter(uint8_t filter, const uint8_t *src, uint8_t *dst);

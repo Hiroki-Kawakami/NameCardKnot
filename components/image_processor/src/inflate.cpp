@@ -28,11 +28,20 @@ static const uint8_t kDistExtra[30] = {
 static const uint8_t kClOrder[19] = {
     16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
 
+int Inflate::next_byte() {
+    if (in_avail_ == 0) {
+        in_ptr_ = src_->refill(&in_avail_);
+        if (in_avail_ == 0) { eof_ = true; return -1; }
+    }
+    in_avail_--;
+    return *in_ptr_++;
+}
+
 uint32_t Inflate::bits(int need) {
     uint32_t val = bitbuf_;
     while (bitcnt_ < need) {
-        int c = src_->get();
-        if (c < 0) { eof_ = true; c = 0; }
+        int c = next_byte();
+        if (c < 0) c = 0;
         val |= static_cast<uint32_t>(c) << bitcnt_;
         bitcnt_ += 8;
     }
@@ -64,8 +73,8 @@ int Inflate::decode_slow(const Huff &h) {
 
 int Inflate::decode(const Huff &h) {
     while (bitcnt_ < kFastBits) {  // peek kFastBits without consuming
-        int c = src_->get();
-        if (c < 0) { eof_ = true; c = 0; }
+        int c = next_byte();
+        if (c < 0) c = 0;
         bitbuf_ |= static_cast<uint32_t>(c) << bitcnt_;
         bitcnt_ += 8;
     }
@@ -173,8 +182,8 @@ bool Inflate::init(ByteSource *src) {
     win_.reset(new (std::nothrow) uint8_t[kWinSize]);
     if (!win_) return false;
 
-    int cmf = src_->get();
-    int flg = src_->get();
+    int cmf = next_byte();
+    int flg = next_byte();
     if (cmf < 0 || flg < 0) return false;
     if ((cmf & 0x0F) != 8) return false;          // not DEFLATE
     if (((cmf << 8) | flg) % 31 != 0) return false;  // header checksum
@@ -192,9 +201,9 @@ size_t Inflate::read(uint8_t *out, size_t n) {
             if (bt == 0) {
                 bitbuf_ = 0;
                 bitcnt_ = 0;  // align to byte boundary
-                int l0 = src_->get(), l1 = src_->get();
-                src_->get();  // NLEN (ignored)
-                src_->get();
+                int l0 = next_byte(), l1 = next_byte();
+                next_byte();  // NLEN (ignored)
+                next_byte();
                 if (l0 < 0 || l1 < 0) { ended_ = true; break; }
                 stored_rem_ = static_cast<uint32_t>(l0 | (l1 << 8));
                 mode_ = 0;
@@ -215,7 +224,7 @@ size_t Inflate::read(uint8_t *out, size_t n) {
 
         if (mode_ == 0) {
             while (produced < n && stored_rem_ > 0) {
-                int c = src_->get();
+                int c = next_byte();
                 if (c < 0) { err_ = true; break; }
                 uint8_t b = static_cast<uint8_t>(c);
                 out[produced++] = b;

@@ -17,7 +17,10 @@ namespace imgproc {
 
 struct ByteSource {
     virtual ~ByteSource() = default;
-    virtual int get() = 0;  // next byte (0..255), or < 0 at end of input
+    // Returns a pointer to the next run of >= 1 input bytes and sets *n; *n == 0
+    // (pointer may be null) at end of input. Block-based so the decoder reads via
+    // a pointer instead of a virtual call per byte.
+    virtual const uint8_t *refill(size_t *n) = 0;
 };
 
 class Inflate {
@@ -37,6 +40,7 @@ private:
         uint16_t fast[kFastSize];  // (len << 9) | symbol, indexed by kFastBits LSB-first bits; 0 = miss
     };
 
+    int      next_byte();  // one input byte from the block buffer, or -1 at end
     uint32_t bits(int need);
     int      decode(const Huff &h);
     int      decode_slow(const Huff &h);
@@ -45,6 +49,8 @@ private:
     static int construct(Huff &h, const uint8_t *lengths, int n);
 
     ByteSource *src_ = nullptr;
+    const uint8_t *in_ptr_ = nullptr;  // current position in the source block
+    size_t   in_avail_ = 0;            // bytes left in the current block
     uint32_t bitbuf_ = 0;
     int      bitcnt_ = 0;
     bool     eof_ = false;
