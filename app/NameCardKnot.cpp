@@ -9,10 +9,35 @@
 #include "screen_manager.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <assert.h>
 #include "HomeScreen.hpp"
 
 static const char *TAG = "NameCardKnot";
+
+// Touch cache fed by the BSP push callback (off the LVGL thread, hence the lock).
+// `armed` latches a press edge so a tap landing entirely between two LVGL reads
+// (e.g. during an EPD refresh) still clicks. See docs/gotchas.md.
+static struct {
+    SemaphoreHandle_t lock;
+    int  x, y;
+    bool down;
+    bool armed;
+} s_touch;
+
+static void touch_event_cb(const bsp_touch_point_t *pts, int count, void *) {
+    xSemaphoreTake(s_touch.lock, portMAX_DELAY);
+    if (count > 0) {
+        if (!s_touch.down) s_touch.armed = true;
+        s_touch.down = true;
+        s_touch.x = pts[0].x;
+        s_touch.y = pts[0].y;
+    } else {
+        s_touch.down = false;
+    }
+    xSemaphoreGive(s_touch.lock);
+}
 
 static lv_display_t *s_disp;
 static uint8_t *s_buf;
@@ -90,18 +115,23 @@ static void lvgl_init() {
     });
     lv_display_set_default(s_disp);
 
+    s_touch.lock = xSemaphoreCreateMutex();
+    bsp_touch_set_event_cb(touch_event_cb, nullptr);
+
     lv_group_set_default(lv_group_create());
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, [](lv_indev_t*, lv_indev_data_t *data) {
-        bsp_touch_point_t pt;
-        if (bsp_touch_read(&pt, 1) > 0) {
-            data->point.x = pt.x;
-            data->point.y = pt.y;
+        xSemaphoreTake(s_touch.lock, portMAX_DELAY);
+        if (s_touch.down || s_touch.armed) {
+            data->point.x = s_touch.x;
+            data->point.y = s_touch.y;
             data->state   = LV_INDEV_STATE_PRESSED;
+            s_touch.armed = false;
         } else {
             data->state = LV_INDEV_STATE_RELEASED;
         }
+        xSemaphoreGive(s_touch.lock);
     });
     lv_indev_set_display(indev, s_disp);
     lv_indev_set_group(indev, lv_group_get_default());
@@ -127,7 +157,9 @@ void unmount_sd_card() {
 void app_entry() {
     bsp_config_t bsp_config = {};
     bsp_config.epd.task_priority = 5;
-    bsp_config.epd.task_affinity = 0;
+    bsp_config.epd.task_affinity = 1;
+    bsp_config.touch.task_priority = 6;
+    bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
     lvgl_init();
 

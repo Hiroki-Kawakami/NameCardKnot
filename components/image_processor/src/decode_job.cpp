@@ -54,20 +54,21 @@ static void decode_job_task(void *arg) {
 }
 #endif
 
-std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts) {
+std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts,
+                                             int task_priority, int task_core) {
     auto job = std::make_shared<DecodeJob>(path, opts);
 #if IMGPROC_ASYNC
     auto *keep = new (std::nothrow) std::shared_ptr<DecodeJob>(job);
     if (keep) {
-        // Pin to the core NOT running the caller (the UI core), so the decode
-        // runs uninterrupted while the UI + EPD have their own core. Falls back to
+        // -1 -> the caller's priority, the core not running it. Falls back to
         // synchronous if the task can't be created.
 #ifdef ESP_PLATFORM
-        BaseType_t core = 1 - xPortGetCoreID();
-        UBaseType_t prio = uxTaskPriorityGet(nullptr);
+        BaseType_t core = task_core >= 0 ? (BaseType_t)task_core : 1 - xPortGetCoreID();
+        UBaseType_t prio = task_priority >= 0 ? (UBaseType_t)task_priority
+                                              : uxTaskPriorityGet(nullptr);
 #else
-        BaseType_t core = tskNO_AFFINITY;
-        UBaseType_t prio = 1;
+        BaseType_t core = task_core >= 0 ? (BaseType_t)task_core : tskNO_AFFINITY;
+        UBaseType_t prio = task_priority >= 0 ? (UBaseType_t)task_priority : 1;
 #endif
         TaskHandle_t h = nullptr;
         if (xTaskCreatePinnedToCore(decode_job_task, "imgjob", 8192, keep, prio, &h, core) != pdPASS) {

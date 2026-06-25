@@ -177,7 +177,9 @@ private:
 };
 
 // Starts a background decode (a FreeRTOS task) and returns the job immediately;
-// runs synchronously when built without FreeRTOS (host unit tests).
-std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts);
+// runs synchronously when built without FreeRTOS (host unit tests). task_priority
+// / task_core default to -1 = the caller's priority and the core not running it.
+std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts,
+                                             int task_priority = -1, int task_core = -1);
 
 }  // namespace imgproc

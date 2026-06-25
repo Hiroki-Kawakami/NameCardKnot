@@ -240,7 +240,7 @@ void FileBrowserScreen::openProgress(const std::string &name, const std::string 
     opts.target_h = lv_display_get_vertical_resolution(disp);
     opts.fit = imgproc::Fit::Contain;
     opts.levels = 16;
-    job_ = imgproc::decode_file_async(path.c_str(), opts);
+    job_ = imgproc::decode_file_async(path.c_str(), opts, /*task_priority=*/5, /*task_core=*/1);
 
     cancelling_ = false;
     last_pct_ = 0;

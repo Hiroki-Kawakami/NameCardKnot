@@ -59,9 +59,34 @@ hit new ones.
   A generation activated mid-scan is left at frame 0 and rendered next frame
   (`epd_frame_mark`'s active-mask gates `epd_frame_advance`), never advanced past
   its own first frame. A `FULL`/`CLEAR` refresh subsumes concurrent draws — treat it
-  as a quiescent reset, not a mid-animation op. The task is pinned to core 0 to keep
-  its DMA busy-waits off the LVGL core. (The simulator path stays synchronous — this
-  engine lives only in the device driver.)
+  as a quiescent reset, not a mid-animation op. (The simulator path stays
+  synchronous — this engine lives only in the device driver.)
+- **The i80 trans-done ISR must NOT share a core with the scan, or every scanline
+  stalls ~50µs.** esp_lcd's `esp_lcd_panel_io_tx_color` ends by re-enabling the
+  trans-done interrupt, and with the event already pending the ISR runs *synchronously
+  inside `tx_color`* — but only when called on the ISR's own core. esp_lcd registers
+  the ISR on whichever core calls `esp_lcd_new_i80_bus`, so `epd_ll_create` runs
+  `bus_init` from a short-lived task pinned to the core OPPOSITE
+  `cfg->task_affinity` (the refresh-task core). Net effect on hardware: per-line
+  `tx_color` dropped ~56µs→~18µs and the blit ~61µs→~38µs (no more ISR contention),
+  ED047TC1 full GC16 ~1.75s→~1.3s. So **pin the refresh task (don't leave
+  `task_affinity` < 0)** — a floating task can land on the ISR core and stall.
+- **The EPD refresh busy-spins a whole core, so polling touch from the UI loses
+  taps — use the push callback.** The `ed047tc1` refresh task does real per-line CPU
+  work (`while (s_dma_busy) taskYIELD()` + `esp_rom_delay_us`) at priority 5; a
+  same-core task at lower priority (e.g. LVGL at 4) gets **zero CPU for the whole
+  refresh**, so a tap during a refresh is missed if touch is only polled from the
+  LVGL `read_cb`. The seam: set `bsp_config.touch.task_priority` (above the EPD
+  task) so the **GT911 reader task** samples the chip independently and *pushes*
+  each sample to the app's `bsp_touch_set_event_cb` the moment it arrives (display
+  space; count 0 = release). The driver does **not** cache — the app's callback
+  owns that policy (NameCardKnot caches the coord under a mutex and latches the
+  press edge so a brief tap mid-refresh still clicks once the UI core is free).
+  `paper` (IT8951E, synchronous, no refresh task) can leave `bsp_config.touch`
+  zeroed and just `bsp_touch_read`. The callback also fires on the **simulator**
+  (`sdl_panel` emits it from its input pump), so the app's touch path is identical
+  on both targets. (The EPD engine itself is device-only — the sim replays no
+  waveform.)
 - **The simulator SD redirect only catches calls compiled into the executable.**
   `sd_redirect.c` overrides `open`/`fopen`/`opendir`/`stat`/`rename`/`unlink` by
   defining them in the binary so the static link binds the app's references to them

@@ -12,7 +12,10 @@ transaction-index waveform engine driving up to 15 concurrent refresh
 generations on an async background task, with a `BSP_EPD_MODE_FULL` flag for
 ghost-clear full flushes; on `paper` the IT8951E TCON is driven over SPI
 (synchronous load-image + display, no async task). Both use the in-tree `gt911`
-I2C polling touch driver. **LVGL is
+I2C touch driver: `bsp_touch_read` polls by default, or the app spawns a
+decoupled reader task (`bsp_config.touch`) that **pushes** each sample to
+`bsp_touch_set_event_cb` so taps survive a starved UI core — the app caches/latches
+the pushed coords itself (see [`docs/gotchas.md`](docs/gotchas.md)). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
 binding, and **SD-card access is in** (`bsp_sd_*`: FAT-over-SDSPI on device, a
 host-directory redirect in the simulator). The name-card image path uses an
