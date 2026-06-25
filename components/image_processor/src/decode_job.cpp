@@ -10,10 +10,10 @@
 
 // Async decode runs on its own FreeRTOS task (device: ESP-IDF, simulator:
 // idf_compat). Without FreeRTOS (host unit tests) it falls back to synchronous.
-#ifndef IMGPROC_PARALLEL
-#define IMGPROC_PARALLEL 1
+#ifndef IMGPROC_ASYNC
+#define IMGPROC_ASYNC 1
 #endif
-#if IMGPROC_PARALLEL
+#if IMGPROC_ASYNC
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #endif
@@ -42,7 +42,7 @@ void DecodeJob::run() {
                                            : State::Failed);
 }
 
-#if IMGPROC_PARALLEL
+#if IMGPROC_ASYNC
 // The task owns one shared_ptr ref (via `keep`), so the job outlives the worker
 // regardless of when the app drops its handle.
 static void decode_job_task(void *arg) {
@@ -56,16 +56,15 @@ static void decode_job_task(void *arg) {
 
 std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts) {
     auto job = std::make_shared<DecodeJob>(path, opts);
-#if IMGPROC_PARALLEL
+#if IMGPROC_ASYNC
     auto *keep = new (std::nothrow) std::shared_ptr<DecodeJob>(job);
     if (keep) {
-        // Run on the caller's core (the UI core) below the caller's priority, so
-        // the UI stays responsive; run_pipeline puts its producer on the other
-        // core. Falls back to synchronous if the task can't be created.
+        // Pin to the core NOT running the caller (the UI core), so the decode
+        // runs uninterrupted while the UI + EPD have their own core. Falls back to
+        // synchronous if the task can't be created.
 #ifdef ESP_PLATFORM
-        BaseType_t core = xPortGetCoreID();
-        UBaseType_t caller = uxTaskPriorityGet(nullptr);
-        UBaseType_t prio = caller > 1 ? caller - 1 : 1;
+        BaseType_t core = 1 - xPortGetCoreID();
+        UBaseType_t prio = uxTaskPriorityGet(nullptr);
 #else
         BaseType_t core = tskNO_AFFINITY;
         UBaseType_t prio = 1;

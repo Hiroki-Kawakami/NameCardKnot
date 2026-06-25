@@ -134,32 +134,27 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
   (`vacc/vwsum`) is a per-row reciprocal multiply, and power-of-two error-diffusion
   divisors (FS=16 / Atkinson=8 / Sierra=32) use a shift.
 
-### Two-stage parallelism (`IMGPROC_PARALLEL`)
+### Threading model (single-threaded decode on a dedicated core)
 
-The entropy bitstream is serial (can't be split across cores), but decode and the
-rest of the pipeline can overlap. A **producer task** (`producer_task`) pulls source rows via `RowSource::next_row`
-(decode + I/O) into a 6-slot ring; the **consumer** (the calling thread, the
-LVGL task on the device) drains the ring through color → downscale → dither →
-pack. The producer is pinned with `xTaskCreatePinnedToCore` to
-`1 - xPortGetCoreID()` — the core *not* running the consumer — so the two genuinely
-run in parallel; pinning both to one core just time-slices it (no speedup, and the
-wall-clock stage timings inflate). Two counting semaphores (free / filled) bound the ring; a binary `done_sem`
-joins before teardown. Wall-clock then approaches `max(decode, rest)` instead of
-their sum (the profile shows `total < decode + transform` as proof).
+The pipeline itself is **single-threaded**. Concurrency lives one level up, in the
+async `DecodeJob`: the decode runs on its own FreeRTOS task pinned to the core *not*
+running the UI (`1 - xPortGetCoreID()`), while LVGL + the EPD refresh task share the
+other core (LVGL priority < EPD). So the decode runs uninterrupted on a dedicated
+core; only the EPD scan's PSRAM-bus traffic contends with it (hardware, unavoidable).
 
-Each `Prof` field has a single writer — decode/io/entropy/idct/post on the
-producer, transform/dither on the consumer — so the shared struct needs no lock.
+This replaced an earlier two-stage producer/consumer pipeline that split decode and
+color/dither across both cores. That gave only a modest speedup (PSRAM-bandwidth-
+bound) and, once a live progress UI was added, put three CPU-heavy things (producer,
+consumer, UI/EPD) on two cores — the UI's EPD refreshes preempted a decode core and
+tripled the time. A single decode core + a dedicated UI/EPD core is simpler and
+faster for the async-with-progress case; the JPEG band still goes to internal RAM
+(`img_alloc_internal`, PSRAM fallback) and the SD window is 32 KiB to keep PSRAM
+traffic down.
 
-The speedup is bounded by the shared **PSRAM bus**: the output buffer is in PSRAM
-(consumer writes), so to keep the producer off that bus the JPEG band is allocated
-in **internal RAM** (`img_alloc_internal`, PSRAM fallback for very wide images) and
-the SD window is 32 KiB. Even so, expect well under 2× — the workload is memory-
-bandwidth-bound, and for a big PNG the consumer is already fully hidden behind a
-long serial decode (`total ≈ decode`), so the remaining lever there is the decoder
-itself, not more parallelism.
-On by default; the host unit tests build `-DIMGPROC_PARALLEL=0` (no FreeRTOS),
-which keeps the pipeline single-threaded and host-testable. FreeRTOS comes from
-ESP-IDF on device and from `idf_compat` (pthread-backed) in the simulator.
+The `IMGPROC_ASYNC` macro (default on; host unit tests build `-DIMGPROC_ASYNC=0`)
+only gates the FreeRTOS task in `DecodeJob` — with it off, `decode_file_async` runs
+synchronously. FreeRTOS comes from ESP-IDF on device and `idf_compat` (pthread-
+backed) in the simulator.
 
 ## Known optimization opportunities (not yet done)
 

@@ -113,9 +113,9 @@ component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES` (e.g.
 `app/CMakeLists.txt`, which also names `ui_framework` and `image_processor`).
 (`image_processor` is in `SIMULATOR_COMPONENTS` for the host build; its device
 requirements are the always-present `heap` for `heap_caps_*`, `esp_timer` for the
-`IMGPROC_PROFILE` stage timing, and `freertos` for the `IMGPROC_PARALLEL`
-producer/consumer pipeline — the simulator gets FreeRTOS from `idf_compat`, the
-host unit tests build both off.) The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
+`IMGPROC_PROFILE` stage timing, and `freertos` for the `IMGPROC_ASYNC` decode task
+(`DecodeJob`) — the simulator gets FreeRTOS from `idf_compat`, the host unit tests
+build both off.) The device EPD path adds `esp_lcd` to the bsp `PRIV_REQUIRES`
 and the `ed047tc1`/`driver` dirs to its `PRIV_INCLUDE_DIRS`; the touch path is the
 in-tree `gt911` driver (no managed dependency) — it adds the `gt911` dir to
 `PRIV_INCLUDE_DIRS` and relies on `driver` (already in `PRIV_REQUIRES`) for
@@ -270,10 +270,14 @@ and is loaded via the `screen_manager`. `app_entry()` loads the first screen
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
 descending into subdirs via an internal path stack (so `back()` pops the stack
-before leaving the screen). `NameCardScreen` decodes the selected SD image with
-`imgproc::decode_file` (not LVGL's built-in decoders) at the display resolution,
-owns the resulting `imgproc::Image`, and shows it 1:1 via `lv_image` through
-`lv_image_adapter.hpp`; decode failures render a `Status` label instead.
+before leaving the screen). Tapping an image opens a **progress modal** and starts
+an **async decode** (`imgproc::decode_file_async`, not LVGL's built-in decoders) at
+the display resolution; an `lv_timer` polls the `DecodeJob`, drives the bar
+(throttled — each EPD refresh is costly), and on completion pushes
+`NameCardScreen` with the decoded `imgproc::Image`. The modal stays up until the
+decode finishes or a cancel completes, so the browser owns the job for its whole
+life. `NameCardScreen` just owns that `Image` and shows it 1:1 via `lv_image`
+through `lv_image_adapter.hpp`.
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
@@ -292,9 +296,11 @@ in-tree decoder (`RowSource`) → box downscale → color convert (linearize →
 luma → gamma) → dither (Bayer / error-diffusion, 2 or 16 levels) → pack
 (L8 high-nibble = EPD gray / I4 / I1). It streams row-by-row, never materializing
 the full-resolution source, so large images no longer OOM silently — they return a
-`Status`. The app calls `imgproc::decode_file`/`decode_buffer`; the BSP↔LVGL-style
-binding to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`, keeping the
-component panel-/UI-agnostic.
+`Status`. The app uses the async `imgproc::decode_file_async` → `DecodeJob` (a
+background FreeRTOS task pinned to the non-UI core, polled for progress/cancel;
+`decode_file`/`decode_buffer` are the synchronous forms); the BSP↔LVGL-style binding
+to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`, keeping the component
+panel-/UI-agnostic. Threading model: [`docs/image_processor.md`](docs/image_processor.md).
 
 Both decoders are written in-tree (no zlib/libjpeg/lodepng): a pull-based
 streaming `inflate` for PNG and a baseline-only JPEG decoder that downscales while

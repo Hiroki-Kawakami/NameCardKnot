@@ -326,7 +326,7 @@ Status JpegDecoder::setup(const Options &opts) {
     band_w_ = mcus_per_row_ * blk_ * hmax_;
     band_h_ = blk_ * vmax_;
     size_t band_bytes = static_cast<size_t>(band_w_) * band_h_ * out_ch_;
-    // Prefer internal RAM (no PSRAM-bus contention with the parallel consumer);
+    // Prefer internal RAM (keeps decode off the PSRAM bus the EPD scan uses);
     // fall back to PSRAM for very wide images whose band won't fit.
     band_ = band_bytes <= 96 * 1024 ? static_cast<uint8_t *>(img_alloc_internal(band_bytes)) : nullptr;
     if (!band_) band_ = static_cast<uint8_t *>(img_alloc(band_bytes, alloc_caps_));

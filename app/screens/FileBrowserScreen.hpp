@@ -39,7 +39,6 @@ private:
     std::shared_ptr<imgproc::DecodeJob> job_;
     bool cancelling_ = false;
     int last_pct_ = 0;
-    int step_pct_ = 5;          // adaptive update granularity (5/10/20/50%)
     uint32_t last_tick_ = 0;
     void openProgress(const std::string &name, const std::string &path);
     void poll();

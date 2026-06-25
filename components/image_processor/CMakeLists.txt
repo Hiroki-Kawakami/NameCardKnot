@@ -19,4 +19,4 @@ idf_component_register(
     SRCS ${IMAGE_PROCESSOR_SRCS}
     INCLUDE_DIRS "inc"
     PRIV_INCLUDE_DIRS "src"
-    PRIV_REQUIRES esp_timer freertos)  # esp_timer (IMGPROC_PROFILE) + freertos (IMGPROC_PARALLEL)
+    PRIV_REQUIRES esp_timer freertos)  # esp_timer (IMGPROC_PROFILE) + freertos (IMGPROC_ASYNC)

@@ -244,7 +244,6 @@ void FileBrowserScreen::openProgress(const std::string &name, const std::string 
 
     cancelling_ = false;
     last_pct_ = 0;
-    step_pct_ = 5;
     last_tick_ = lv_tick_get();
     poll_ = lv_timer_create([](lv_timer_t *t) {
         static_cast<FileBrowserScreen *>(lv_timer_get_user_data(t))->poll();
@@ -257,15 +256,11 @@ void FileBrowserScreen::poll() {
 
     if (state == imgproc::DecodeJob::State::Running) {
         if (cancelling_) return;  // waiting for the worker to stop
+        // The decode runs on its own core now, so a bar refresh only costs PSRAM
+        // contention (not CPU preemption); ~1s between refreshes is cheap enough.
+        static constexpr uint32_t kBarRefreshMs = 1000;
         int pct = job_->progress_pct();
-        if (pct - last_pct_ >= step_pct_) {
-            // Adaptive throttle: widen the step when updates arrive faster than
-            // 500ms so EPD FAST refreshes stay ~500-1000ms apart.
-            if (lv_tick_elaps(last_tick_) < 500) {
-                if (step_pct_ < 10) step_pct_ = 10;
-                else if (step_pct_ < 20) step_pct_ = 20;
-                else if (step_pct_ < 50) step_pct_ = 50;
-            }
+        if (pct != last_pct_ && lv_tick_elaps(last_tick_) >= kBarRefreshMs) {
             lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
             last_pct_ = pct;
             last_tick_ = lv_tick_get();

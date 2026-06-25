@@ -50,9 +50,11 @@ void epd_set_next_refresh_mode(bsp_epd_mode_t mode) {
 
 static void lvgl_init() {
     lvgl_port_cfg_t config = {
+        // LVGL shares core 0 with the EPD refresh task (priority 5 > LVGL 4, so a
+        // refresh preempts the UI); the async image decoder owns core 1.
         .task_priority = 4,
         .task_stack = 16384,
-        .task_affinity = 1,
+        .task_affinity = 0,
         .task_max_sleep_ms = 500,
         .task_stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DEFAULT,
         .timer_period_ms = 5,

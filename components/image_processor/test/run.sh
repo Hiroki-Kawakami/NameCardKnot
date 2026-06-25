@@ -13,7 +13,7 @@ trap 'rm -rf "$OUT"' EXIT
 
 SRCS=$(find "$ROOT/src" -name '*.cpp')
 
-g++ -std=c++17 -Wall -Wextra -O2 -DIMGPROC_PROFILE=0 -DIMGPROC_PARALLEL=0 \
+g++ -std=c++17 -Wall -Wextra -O2 -DIMGPROC_PROFILE=0 -DIMGPROC_ASYNC=0 \
     -I "$ROOT/inc" -I "$ROOT/src" \
     "$DIR/image_processor_test.cpp" $SRCS \
     -o "$OUT/imgproc_test"
