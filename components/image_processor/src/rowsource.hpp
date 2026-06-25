@@ -33,9 +33,10 @@ struct RowSource {
 
 // A decoder is a RowSource with a header-parse step. open() reads the container
 // header from `in`, fills width/height/kind, and binds the stream for the
-// subsequent next_row() calls.
+// subsequent next_row() calls. `opts` lets a decoder downscale while decoding
+// (JPEG picks a 1/1..1/8 factor from the target geometry and pixel cap).
 struct Decoder : RowSource {
-    virtual Status open(InputStream &in) = 0;
+    virtual Status open(InputStream &in, const Options &opts) = 0;
 };
 
 // Phase 1 returns nullptr (no decoder wired yet); PNG/JPEG arrive in Phase 3/4.

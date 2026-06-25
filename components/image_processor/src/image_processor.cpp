@@ -76,7 +76,7 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out) {
     std::unique_ptr<Decoder> dec = make_decoder(fmt);
     if (!dec) return Status::UnsupportedFormat;  // Phase 1: decoders not wired
 
-    Status st = dec->open(in);
+    Status st = dec->open(in, opts);
     if (st != Status::Ok) return st;
 
     st = check_src_size(dec->width, dec->height, opts.max_src_pixels);

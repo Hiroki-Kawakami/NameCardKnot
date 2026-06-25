@@ -15,11 +15,13 @@
 // Internal headers (test/run.sh adds -I src) — white-box coverage.
 #include "alloc.hpp"
 #include "pipeline.hpp"
+#include "jpeg.hpp"
 #include "png.hpp"
 #include "rowsource.hpp"
 #include "sniff.hpp"
 #include "stream.hpp"
 #include "png_fixtures.h"
+#include "jpeg_fixtures.h"
 
 using namespace imgproc;
 
@@ -155,7 +157,7 @@ static void test_entry_points() {
 static void test_png_gray() {
     BufferInputStream in(kPngGray2x2, sizeof kPngGray2x2);
     PngDecoder dec;
-    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.open(in, Options{}) == Status::Ok);
     CHECK(dec.width == 2 && dec.height == 2);
     CHECK(dec.kind == PixelKind::Gray8);
     uint8_t row[2];
@@ -167,7 +169,7 @@ static void test_png_gray() {
 static void test_png_rgb() {
     BufferInputStream in(kPngRgb2x2, sizeof kPngRgb2x2);
     PngDecoder dec;
-    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.open(in, Options{}) == Status::Ok);
     CHECK(dec.kind == PixelKind::RGB888);
     uint8_t row[6];
     CHECK(dec.next_row(row));
@@ -181,7 +183,7 @@ static void test_png_rgb() {
 static void test_png_palette() {
     BufferInputStream in(kPngPalette2x2, sizeof kPngPalette2x2);
     PngDecoder dec;
-    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.open(in, Options{}) == Status::Ok);
     CHECK(dec.kind == PixelKind::RGB888);
     uint8_t row[6];
     CHECK(dec.next_row(row));
@@ -194,7 +196,7 @@ static void test_png_palette() {
 static void test_png_rgba_composite() {
     BufferInputStream in(kPngRgba2x2, sizeof kPngRgba2x2);
     PngDecoder dec;
-    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.open(in, Options{}) == Status::Ok);
     CHECK(dec.kind == PixelKind::RGB888);
     uint8_t row[6];
     CHECK(dec.next_row(row));
@@ -208,7 +210,7 @@ static void test_png_rgba_composite() {
 static void test_png_gradient_inflate() {
     BufferInputStream in(kPngGrad16, sizeof kPngGrad16);
     PngDecoder dec;
-    CHECK(dec.open(in) == Status::Ok);
+    CHECK(dec.open(in, Options{}) == Status::Ok);
     CHECK(dec.width == 16 && dec.height == 16);
     uint8_t row[16];
     int y = 0;
@@ -232,6 +234,80 @@ static void test_png_through_pipeline() {
     CHECK(img.w == 2 && img.h == 2 && img.format == OutFormat::L8);
     // Red sits above blue in luminance (Rec709).
     CHECK(img.data[0] > img.data[2]);
+}
+
+// ---- JPEG decoder (approximate pixels — lossy) ------------------------------
+
+static bool near(int a, int b, int tol) { return (a > b ? a - b : b - a) <= tol; }
+
+static void test_jpeg_gray_flat() {
+    BufferInputStream in(kJpgGrayFlat, sizeof kJpgGrayFlat);
+    JpegDecoder dec;
+    CHECK(dec.open(in, Options{}) == Status::Ok);
+    CHECK(dec.width == 16 && dec.height == 16 && dec.kind == PixelKind::Gray8);
+    uint8_t row[16];
+    int rows = 0;
+    bool flat = true;
+    while (dec.next_row(row)) {
+        for (int x = 0; x < 16; x++) flat &= near(row[x], 128, 4);
+        rows++;
+    }
+    CHECK(flat);
+    CHECK(rows == 16);
+}
+
+static void test_jpeg_gray_split() {
+    BufferInputStream in(kJpgGraySplit, sizeof kJpgGraySplit);
+    JpegDecoder dec;
+    CHECK(dec.open(in, Options{}) == Status::Ok);
+    uint8_t row[16];
+    CHECK(dec.next_row(row));
+    // Interior samples away from the edge: left dark (~40), right bright (~220).
+    CHECK(near(row[2], 40, 25));
+    CHECK(near(row[13], 220, 25));
+    CHECK(row[13] > row[2] + 100);
+}
+
+static void test_jpeg_rgb_red() {
+    BufferInputStream in(kJpgRgbRed, sizeof kJpgRgbRed);
+    JpegDecoder dec;
+    CHECK(dec.open(in, Options{}) == Status::Ok);
+    CHECK(dec.kind == PixelKind::RGB888);
+    uint8_t row[16 * 3];
+    CHECK(dec.next_row(row));
+    // Solid red (220,30,30): R dominant, G/B low.
+    CHECK(near(row[0], 220, 20));
+    CHECK(near(row[1], 30, 25));
+    CHECK(near(row[2], 30, 25));
+    CHECK(row[0] > row[1] + 100 && row[0] > row[2] + 100);
+}
+
+static void test_jpeg_decode_time_downscale() {
+    // 64x64 source, target 16x16 -> decoder picks S so decoded dims shrink but
+    // stay >= target; the flat value survives.
+    Options o;
+    o.target_w = 16;
+    o.target_h = 16;
+    BufferInputStream in(kJpgGrayBig, sizeof kJpgGrayBig);
+    JpegDecoder dec;
+    CHECK(dec.open(in, o) == Status::Ok);
+    CHECK(dec.width < 64 && dec.width >= 16);  // downscaled during decode
+    uint8_t row[64];
+    CHECK(dec.next_row(row));
+    CHECK(near(row[0], 100, 6));
+}
+
+static void test_jpeg_through_pipeline() {
+    Options o;
+    o.target_w = 16;
+    o.target_h = 16;
+    o.fit = Fit::Stretch;
+    o.dither = Dither::None;
+    o.levels = 16;
+    Image img;
+    CHECK(decode_buffer(kJpgGrayFlat, sizeof kJpgGrayFlat, o, img) == Status::Ok);
+    CHECK(img.w == 16 && img.h == 16);
+    CHECK(near(img.data[0], 136, 20));  // ~128 quantized to the nearest level
 }
 
 // ---- Pipeline (synthetic RowSource) -----------------------------------------
@@ -451,6 +527,12 @@ int main() {
     test_png_rgba_composite();
     test_png_gradient_inflate();
     test_png_through_pipeline();
+
+    test_jpeg_gray_flat();
+    test_jpeg_gray_split();
+    test_jpeg_rgb_red();
+    test_jpeg_decode_time_downscale();
+    test_jpeg_through_pipeline();
 
     if (g_failures == 0) {
         std::printf("image_processor: all tests passed\n");

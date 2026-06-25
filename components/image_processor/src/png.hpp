@@ -20,7 +20,7 @@ namespace imgproc {
 // over white. Unsupported (returns from open()): 16-bit channels, interlaced.
 class PngDecoder : public Decoder {
 public:
-    Status open(InputStream &in) override;
+    Status open(InputStream &in, const Options &opts) override;
     bool next_row(uint8_t *dst) override;
 
 private:

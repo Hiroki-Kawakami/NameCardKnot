@@ -58,7 +58,8 @@ int PngDecoder::IdatSource::get() {
     return b;
 }
 
-Status PngDecoder::open(InputStream &in) {
+Status PngDecoder::open(InputStream &in, const Options &opts) {
+    (void)opts;  // PNG decodes at full resolution; the pipeline does the downscale.
     static const uint8_t kSig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     uint8_t sig[8];
     if (!read_full(in, sig, 8)) return Status::Truncated;
