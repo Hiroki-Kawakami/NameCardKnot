@@ -94,23 +94,24 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out, Pr
 }
 
 static Status decode_file_impl(const char *path, const Options &opts, Image &out, Progress *prog,
-                               const ParallelCfg *par) {
+                               const ParallelCfg *par, long offset, size_t length) {
     if (!path) return Status::BadArgument;
     FILE *fp = std::fopen(path, "rb");
     if (!fp) return Status::OpenFailed;
-    FileInputStream in(fp);
+    FileInputStream in(fp, offset, length);
     Status st = in.ok() ? decode_stream(in, opts, out, prog, par) : Status::OutOfMemory;
     std::fclose(fp);
     return st;
 }
 
-Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog) {
-    return decode_file_impl(path, opts, out, prog, nullptr);
+Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog,
+                   uint32_t offset, uint32_t length) {
+    return decode_file_impl(path, opts, out, prog, nullptr, (long)offset, (size_t)length);
 }
 
 Status decode_file_parallel(const char *path, const Options &opts, Image &out, Progress *prog,
-                            const ParallelCfg &par) {
-    return decode_file_impl(path, opts, out, prog, &par);
+                            const ParallelCfg &par, uint32_t offset, uint32_t length) {
+    return decode_file_impl(path, opts, out, prog, &par, (long)offset, (size_t)length);
 }
 
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out, Progress *prog) {

@@ -82,7 +82,17 @@ size_t BufferInputStream::raw_read(void *dst, size_t n) {
 }
 
 size_t FileInputStream::raw_read(void *dst, size_t n) {
-    return std::fread(dst, 1, n, fp_);
+    if (!seeked_) {  // seek to the sub-range start on the first fetch
+        if (offset_ > 0) std::fseek(fp_, offset_, SEEK_SET);
+        seeked_ = true;
+    }
+    if (limited_) {
+        if (remaining_ == 0) return 0;
+        if (n > remaining_) n = remaining_;
+    }
+    size_t got = std::fread(dst, 1, n, fp_);
+    if (limited_) remaining_ -= got;
+    return got;
 }
 
 }  // namespace imgproc

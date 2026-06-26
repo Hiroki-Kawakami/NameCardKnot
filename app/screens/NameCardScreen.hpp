@@ -5,18 +5,19 @@
 
 #pragma once
 #include "screen_manager.hpp"
-#include "image_processor.hpp"
 #include "lvgl.hpp"
+#include "NameCardData.hpp"
+#include <memory>
 
 class NameCardScreen : public Screen {
 public:
-    explicit NameCardScreen(imgproc::Image image);
+    explicit NameCardScreen(std::shared_ptr<NameCardData> data);
     void build() override;
     void onAppear() override;
 
 private:
-    imgproc::Image image_;   // owns the decoded buffer (decoded by FileBrowserScreen)
-    lv_image_dsc_t dsc_{};   // references image_'s buffer (must outlive the lv_image)
+    std::shared_ptr<NameCardData> data_;  // owns the decoded image + metadata
+    lv_image_dsc_t dsc_{};   // references the display image's buffer (kept alive by data_)
 
     void openMenu();
 };

@@ -22,9 +22,11 @@
 
 namespace imgproc {
 
-DecodeJob::DecodeJob(const char *path, const Options &opts, int consumer_core, int consumer_prio)
+DecodeJob::DecodeJob(const char *path, const Options &opts, int consumer_core, int consumer_prio,
+                     uint32_t offset, uint32_t length)
     : path_(path ? path : ""), opts_(opts),
-      consumer_core_(consumer_core), consumer_prio_(consumer_prio) {}
+      consumer_core_(consumer_core), consumer_prio_(consumer_prio),
+      offset_(offset), length_(length) {}
 
 int DecodeJob::progress_pct() const {
     int t = prog_.total.load();
@@ -38,7 +40,7 @@ Image DecodeJob::take_image() { return std::move(image_); }
 void DecodeJob::run() {
     Image img;
     ParallelCfg par{consumer_core_, consumer_prio_};
-    Status st = decode_file_parallel(path_.c_str(), opts_, img, &prog_, par);
+    Status st = decode_file_parallel(path_.c_str(), opts_, img, &prog_, par, offset_, length_);
     status_.store(st);
     if (st == Status::Ok) image_ = std::move(img);
     state_.store(st == Status::Ok         ? State::Ok
@@ -59,7 +61,8 @@ static void decode_job_task(void *arg) {
 #endif
 
 std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts,
-                                             int task_priority, int task_core) {
+                                             int task_priority, int task_core,
+                                             uint32_t offset, uint32_t length) {
 #if IMGPROC_ASYNC
     // The decode (producer) runs on this "imgjob" task — the heavy, input-
     // dependent side keeps the caller's priority/core. The color+dither
@@ -76,7 +79,7 @@ std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &op
     UBaseType_t prod_prio = task_priority >= 0 ? (UBaseType_t)task_priority : 1;
     int cons_core = tskNO_AFFINITY;
 #endif
-    auto job = std::make_shared<DecodeJob>(path, opts, cons_core, (int)prod_prio);
+    auto job = std::make_shared<DecodeJob>(path, opts, cons_core, (int)prod_prio, offset, length);
     auto *keep = new (std::nothrow) std::shared_ptr<DecodeJob>(job);
     if (keep) {
         TaskHandle_t h = nullptr;
@@ -91,7 +94,7 @@ std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &op
 #else
     (void)task_priority;
     (void)task_core;
-    auto job = std::make_shared<DecodeJob>(path, opts);
+    auto job = std::make_shared<DecodeJob>(path, opts, -1, -1, offset, length);
     job->run();
 #endif
     return job;

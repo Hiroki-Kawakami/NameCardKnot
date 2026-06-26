@@ -142,7 +142,10 @@ struct Progress {
 
 // ---- Entry points -----------------------------------------------------------
 
-Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog = nullptr);
+// offset/length restrict decoding to the file sub-range [offset, offset+length)
+// (length 0 = to EOF), e.g. a JPEG embedded in a .mnc.pdf container.
+Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog = nullptr,
+                   uint32_t offset = 0, uint32_t length = 0);
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out,
                      Progress *prog = nullptr);
 
@@ -159,8 +162,9 @@ public:
 
     // internal: use decode_file_async. consumer_core/prio configure the second
     // (color+dither) task; the decode runs on whatever task calls run().
+    // offset/length restrict decoding to a file sub-range (length 0 = to EOF).
     DecodeJob(const char *path, const Options &opts, int consumer_core = -1,
-              int consumer_prio = -1);
+              int consumer_prio = -1, uint32_t offset = 0, uint32_t length = 0);
 
     int    progress_pct() const;
     State  state() const { return state_.load(); }
@@ -179,12 +183,15 @@ private:
     Options opts_;
     int consumer_core_;
     int consumer_prio_;
+    uint32_t offset_;
+    uint32_t length_;
 };
 
 // Starts a background decode (a FreeRTOS task) and returns the job immediately;
 // runs synchronously when built without FreeRTOS (host unit tests). task_priority
 // / task_core default to -1 = the caller's priority and the core not running it.
 std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts,
-                                             int task_priority = -1, int task_core = -1);
+                                             int task_priority = -1, int task_core = -1,
+                                             uint32_t offset = 0, uint32_t length = 0);
 
 }  // namespace imgproc

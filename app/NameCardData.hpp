@@ -1,0 +1,55 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Hiroki Kawakami
+ */
+
+#pragma once
+#include "FileLoader.hpp"
+#include "image_processor.hpp"
+#include "namecard_pdf.hpp"
+#include <memory>
+#include <string>
+
+// Async loader (the browser's FileLoader) over a plain image or a .mnc.pdf:
+// decodes the display image off the UI task and, for a card, carries the
+// metadata. LVGL-free; NameCardScreen wraps display_image() into an lv_image.
+class NameCardData : public FileLoader {
+public:
+    enum class Kind { Image, Card };
+
+    static std::shared_ptr<NameCardData> load(const std::string &path,
+                                              const imgproc::Options &opts);
+
+    ~NameCardData();
+    NameCardData(const NameCardData &) = delete;
+    NameCardData &operator=(const NameCardData &) = delete;
+
+    State state() const override;
+    int progress_pct() const override;
+    void cancel() override;
+    std::string label() const override;
+    imgproc::Status status() const;  // failure detail when state()==Failed
+
+    Kind kind() const { return kind_; }
+    const std::string &path() const { return path_; }
+
+    // Owned here — keep the shared_ptr alive while an lv_image references it.
+    const imgproc::Image &display_image() const;
+
+    bool is_card() const { return kind_ == Kind::Card; }
+    const std::string &name() const { return card_.name; }
+    const std::string &url() const { return card_.url; }
+
+private:
+    NameCardData() = default;
+    void finalize() const;  // pull the image out of the worker once it is terminal
+
+    Kind kind_ = Kind::Image;
+    std::string path_;
+    nckpdf::Card card_;
+    std::shared_ptr<imgproc::DecodeJob> job_;
+    mutable imgproc::Image image_;
+    mutable State state_ = State::Loading;
+    mutable imgproc::Status status_ = imgproc::Status::Ok;
+    mutable bool finalized_ = false;
+};

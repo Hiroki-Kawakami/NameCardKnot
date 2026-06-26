@@ -129,3 +129,18 @@ against a known bit pattern, and checks corrupt/truncated/null inputs return a
 `Status` error. Run `gen-fixtures` after any writer change so both sides stay locked.
 `pdfinfo`/`pdftoppm` (poppler) confirm the hand-written xref renders as a real PDF;
 `run.sh` accepts `NCK_SAN=1` for ASAN/UBSAN where a sanitizer runtime exists.
+
+The **app-side abstraction** (`NameCardData`, the browser's `FileLoader` over plain
+images and `.mnc.pdf`) is LVGL-free, so it has its own host test:
+
+```sh
+nix develop -c sh app/test/run.sh   # NameCardData: detect image vs .mnc.pdf, decode display image, metadata
+```
+
+It loads the golden `.mnc.pdf` + asset JPEGs (run `gen-fixtures` first), asserting
+card detection + name + a decoded display image, the plain-image path, and that a
+`.snc.pdf` / missing file fail cleanly. End-to-end in the simulator,
+`simulator/verify/mnc_pdf.txt` browses `simulator/sdcard/yamada.mnc.pdf` and
+captures the decoded card (the embedded display JPEG is sub-range-decoded — the
+`image_processor` `offset/length` path, also unit-tested in
+`image_processor_test.cpp`).

@@ -1,0 +1,11 @@
+# Open a .mnc.pdf from the SD browser and confirm it loads + displays through
+# NameCardData (footer parse -> embedded display JPEG -> image_processor).
+# tap: panel_x = logical_y, panel_y = 540 - logical_x.
+settle
+tap 645 397                                      # home: "Open from SD"
+settle
+capture simulator/verify/out/mnc_list.jpg
+tap 528 270                                       # listing row 6: "yamada.mnc.pdf"
+settle
+capture simulator/verify/out/mnc_card.jpg
+quit

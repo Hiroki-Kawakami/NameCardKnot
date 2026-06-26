@@ -303,14 +303,22 @@ and is loaded via the `screen_manager`. `app_entry()` loads the first screen
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
 descending into subdirs via an internal path stack (so `back()` pops the stack
-before leaving the screen). Tapping an image opens a **progress modal** and starts
-an **async decode** (`imgproc::decode_file_async`, not LVGL's built-in decoders) at
-the display resolution; an `lv_timer` polls the `DecodeJob`, drives the bar
-(throttled — each EPD refresh is costly), and on completion pushes
-`NameCardScreen` with the decoded `imgproc::Image`. The modal stays up until the
-decode finishes or a cancel completes, so the browser owns the job for its whole
-life. `NameCardScreen` just owns that `Image` and shows it 1:1 via `lv_image`
-through `lv_image_adapter.hpp`.
+before leaving the screen). Tapping a file opens a **progress modal** and starts
+an **async load** behind `FileLoader` (`app/FileLoader.hpp`) — the abstract
+progress/state/cancel/label interface the browser polls. `NameCardData`
+(`app/NameCardData.{hpp,cpp}`) is the concrete loader: it abstracts a plain image
+*and* a `.mnc.pdf` (detects via `nckpdf::open_file`, then decodes either the whole
+file or just the embedded display JPEG byte range with
+`imgproc::decode_file_async(..., offset, length)`), and stays LVGL-free. The
+browser holds one `FileLoader` plus a completion `std::function` callback, so a
+new file type is just a new loader + callback at the call site, not new per-type
+modal code. An `lv_timer` polls the loader, drives the bar (throttled — each EPD
+refresh is costly), and on completion runs the callback, which pushes
+`NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` keeps the
+`shared_ptr<NameCardData>` (so the decoded buffer outlives the `lv_image`) and
+shows `display_image()` 1:1 via `lv_image_adapter.hpp`. (Plain `.snc.pdf` —
+share-only, no display image — is not openable yet; a dedicated screen comes
+later, as does the `name_glyphs`→`lv_font` adapter for rare-kanji names.)
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
@@ -357,10 +365,12 @@ complete share-only PDF + footer A, then `(B)` an incremental update adding the
 display image + footer B — so the device makes a **share-only PDF by truncating at
 `base_total_length`** (byte copy, no re-serialization). The TS writer is the source
 of truth; the C++ parser is held to **byte-identical golden fixtures** (TS
-`gen-fixtures` → `manifest.h`). Both are **decoupled from WebApp/LVGL and not yet
-wired into the app builds** (integration — sim/device build entries, the
-`name_glyphs`→`lv_font` adapter, canvas glyph rasterization — is a later task).
-Format spec, byte layouts, file locations, and test commands:
+`gen-fixtures` → `manifest.h`). The reader is **wired into the app**: `app/` lists
+`namecard_pdf` in `REQUIRES`, the simulator in `SIMULATOR_COMPONENTS`, and the
+browser opens `.mnc.pdf` via `NameCardData` (see Screens above). Still LVGL-free
+itself; still to do — the `name_glyphs`→`lv_font` adapter + canvas glyph
+rasterization (rare-kanji names), and a `.snc.pdf` viewer. Format spec, byte
+layouts, file locations, and test commands:
 [`docs/namecard_pdf.md`](docs/namecard_pdf.md).
 
 ## Verification & gotchas
@@ -369,4 +379,6 @@ Format spec, byte layouts, file locations, and test commands:
   [`docs/testing.md`](docs/testing.md).
 - **Image-processor host unit tests** (decode/pipeline, fixtures):
   [`docs/testing.md`](docs/testing.md).
+- **Container PDF tests** (TS vitest, `namecard_pdf` + `NameCardData` host tests,
+  cross-language golden): [`docs/testing.md`](docs/testing.md).
 - **Gotchas** (build/env, EPD, threading, image decode): [`docs/gotchas.md`](docs/gotchas.md).

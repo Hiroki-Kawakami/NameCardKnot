@@ -9,12 +9,12 @@
 #include "widgets.hpp"
 #include "resources.h"
 
-NameCardScreen::NameCardScreen(imgproc::Image image) : image_(std::move(image)) {}
+NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data) : data_(std::move(data)) {}
 
 void NameCardScreen::build() {
-    // The image is already decoded (FileBrowserScreen, at the display resolution),
-    // so just show it 1:1 (no LVGL scaling) via the L8 -> lv_image_dsc adapter.
-    if (imgproc_fill_lv_dsc(image_, dsc_)) {
+    // The image is already decoded (NameCardData, at the display resolution), so
+    // just show it 1:1 (no LVGL scaling) via the L8 -> lv_image_dsc adapter.
+    if (imgproc_fill_lv_dsc(data_->display_image(), dsc_)) {
         auto image = lv_image_create(root_);
         lv_image_set_src(image, &dsc_);
         lv_obj_center(image);

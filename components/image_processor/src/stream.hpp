@@ -58,16 +58,23 @@ private:
     size_t pos_ = 0;
 };
 
-// Does not own the FILE*; the caller opens and closes it.
+// Does not own the FILE*; the caller opens and closes it. Optionally decodes
+// only the sub-range [offset, offset+length) of the file (length 0 = to EOF),
+// used to decode a JPEG embedded inside a container (e.g. a .mnc.pdf).
 class FileInputStream : public InputStream {
 public:
-    explicit FileInputStream(FILE *fp) : fp_(fp) {}
+    explicit FileInputStream(FILE *fp, long offset = 0, size_t length = 0)
+        : fp_(fp), offset_(offset), remaining_(length), limited_(length != 0) {}
 
 protected:
     size_t raw_read(void *dst, size_t n) override;
 
 private:
     FILE *fp_;
+    long offset_;
+    size_t remaining_;
+    bool limited_;
+    bool seeked_ = false;
 };
 
 }  // namespace imgproc

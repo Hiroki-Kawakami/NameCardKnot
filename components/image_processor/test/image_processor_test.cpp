@@ -116,6 +116,28 @@ static void test_file_stream() {
     std::fclose(fp);
 }
 
+// Decode a JPEG embedded inside a larger file (offset/length sub-range) — the
+// .mnc.pdf display-image path.
+static void test_file_subrange() {
+    const char *path = "/tmp/imgproc_subrange.bin";
+    const uint8_t pad[100] = {0};
+    FILE *f = std::fopen(path, "wb");
+    CHECK(f != nullptr);
+    if (!f) return;
+    std::fwrite(pad, 1, sizeof pad, f);
+    std::fwrite(kJpgGrayBig, 1, sizeof kJpgGrayBig, f);
+    std::fwrite(pad, 1, sizeof pad, f);
+    std::fclose(f);
+
+    Options o;
+    Image img;
+    CHECK(decode_file(path, o, img) != Status::Ok);  // leading padding isn't an image
+    Status st = decode_file(path, o, img, nullptr, (uint32_t)sizeof pad, (uint32_t)sizeof kJpgGrayBig);
+    CHECK(st == Status::Ok);
+    CHECK(img.w == 64 && img.h == 64);
+    std::remove(path);
+}
+
 // ---- sniff / size guard -----------------------------------------------------
 
 static void test_sniff() {
@@ -552,6 +574,7 @@ int main() {
     test_peek_is_nonconsuming();
     test_peek_then_partial_read();
     test_file_stream();
+    test_file_subrange();
     test_sniff();
     test_check_src_size();
     test_entry_points();

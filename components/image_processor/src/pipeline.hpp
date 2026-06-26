@@ -30,7 +30,8 @@ Status run_pipeline(RowSource &src, const Options &opts, Image &out, Progress *p
 
 // Like decode_file but runs the pipeline across two tasks (see ParallelCfg).
 // Internal entry used by the async DecodeJob; the public decode_file is serial.
+// offset/length restrict decoding to a file sub-range (length 0 = to EOF).
 Status decode_file_parallel(const char *path, const Options &opts, Image &out, Progress *prog,
-                            const ParallelCfg &par);
+                            const ParallelCfg &par, uint32_t offset = 0, uint32_t length = 0);
 
 }  // namespace imgproc

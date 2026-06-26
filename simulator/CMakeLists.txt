@@ -84,6 +84,7 @@ set(SIMULATOR_COMPONENTS
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/bsp
     ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/ui_framework
     ${CMAKE_CURRENT_SOURCE_DIR}/../components/image_processor
+    ${CMAKE_CURRENT_SOURCE_DIR}/../components/namecard_pdf
     ${CMAKE_CURRENT_SOURCE_DIR}/../app)
 foreach(comp ${SIMULATOR_COMPONENTS})
     get_filename_component(name "${comp}" NAME)

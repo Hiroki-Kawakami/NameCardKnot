@@ -7,6 +7,8 @@
 #include "screen_manager.hpp"
 #include "widgets.hpp"
 #include "image_processor.hpp"
+#include "FileLoader.hpp"
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -32,15 +34,18 @@ private:
     void rebuild();
     void open(int index);
 
-    // Async image load shown in a modal (decode runs off the UI task).
+    // Async file load shown in a modal. The loader (a FileLoader) reports
+    // progress/cancel; onLoaded_ does the per-type transition. The modal + poll
+    // loop here are common across file types.
     lv_obj_t *card_ = nullptr;
     lv_obj_t *bar_ = nullptr;
     lv_timer_t *poll_ = nullptr;
-    std::shared_ptr<imgproc::DecodeJob> job_;
+    std::shared_ptr<FileLoader> loader_;
+    std::function<void()> onLoaded_;
     bool cancelling_ = false;
     int last_pct_ = 0;
     uint32_t last_tick_ = 0;
-    void openProgress(const std::string &name, const std::string &path);
+    void openProgress();
     void poll();
     void stopLoad();
 };

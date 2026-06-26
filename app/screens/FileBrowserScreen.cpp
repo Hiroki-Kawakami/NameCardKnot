@@ -5,11 +5,13 @@
 
 #include "FileBrowserScreen.hpp"
 #include "NameCardScreen.hpp"
+#include "NameCardData.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
 #include <algorithm>
 #include <vector>
 #include <cstdio>
+#include <cstring>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -198,6 +200,11 @@ static bool is_image(const std::string &name) {
     return ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "bmp";
 }
 
+static bool ends_with(const std::string &s, const char *suffix) {
+    size_t n = std::strlen(suffix);
+    return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
+}
+
 void FileBrowserScreen::open(int index) {
     auto &e = entries_[index];
     auto path = path_stack_.back() + "/" + e.name;
@@ -207,16 +214,34 @@ void FileBrowserScreen::open(int index) {
         rebuild();
         return;
     }
-    if (is_image(e.name)) {
-        openProgress(e.name, path);
+
+    // Decode at the display resolution (Contain, 16-gray).
+    lv_display_t *disp = lv_display_get_default();
+    imgproc::Options opts;
+    opts.target_w = lv_display_get_horizontal_resolution(disp);
+    opts.target_h = lv_display_get_vertical_resolution(disp);
+    opts.fit = imgproc::Fit::Contain;
+    opts.levels = 16;
+
+    // Per file type: pick the loader (data-class init) + the completion
+    // transition. The modal + poll loop around them is common (openProgress).
+    if (is_image(e.name) || ends_with(e.name, ".mnc.pdf")) {
+        auto data = NameCardData::load(path, opts);
+        loader_ = data;
+        onLoaded_ = [this, data] {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            screen_manager.push(std::make_shared<NameCardScreen>(data));
+        };
+        openProgress();
     }
+    // .snc.pdf (no display image) and other types are not openable yet.
 }
 
-void FileBrowserScreen::openProgress(const std::string &name, const std::string &path) {
+void FileBrowserScreen::openProgress() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
     card_ = lv_modal_open(root_);
     lv_modal_title_create(card_, "Loading...");
-    lv_modal_message_create(card_, name.c_str());
+    lv_modal_message_create(card_, loader_->label().c_str());
 
     bar_ = lv_bar_create(card_);
     lv_obj_set_width(bar_, LV_PCT(100));
@@ -225,22 +250,12 @@ void FileBrowserScreen::openProgress(const std::string &name, const std::string 
     lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
 
     lv_modal_button_create(card_, "Cancel", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *e) {
-        if (job_) job_->cancel();
+        if (loader_) loader_->cancel();
         cancelling_ = true;  // keep the modal up until the worker acknowledges
         auto button = lv_event_get_target_obj(e);
         lv_obj_add_state(button, LV_STATE_DISABLED);
         lv_label_set_text(lv_obj_get_child(button, 0), "Cancelling...");
     });
-
-    // Decode at the display resolution (Contain, 16-gray) on a background task;
-    // poll the job from the UI loop and drive the bar.
-    lv_display_t *disp = lv_display_get_default();
-    imgproc::Options opts;
-    opts.target_w = lv_display_get_horizontal_resolution(disp);
-    opts.target_h = lv_display_get_vertical_resolution(disp);
-    opts.fit = imgproc::Fit::Contain;
-    opts.levels = 16;
-    job_ = imgproc::decode_file_async(path.c_str(), opts, /*task_priority=*/3, /*task_core=*/1);
 
     cancelling_ = false;
     last_pct_ = 0;
@@ -251,19 +266,19 @@ void FileBrowserScreen::openProgress(const std::string &name, const std::string 
 }
 
 void FileBrowserScreen::poll() {
-    if (!job_) return;
-    auto state = job_->state();
+    if (!loader_) return;
+    auto state = loader_->state();
 
-    if (state == imgproc::DecodeJob::State::Running) {
+    if (state == FileLoader::State::Loading) {
         if (cancelling_) return;  // waiting for the worker to stop
-        // The decode runs on its own core now, so a bar refresh only costs PSRAM
+        // The decode runs on its own core, so a bar refresh only costs PSRAM
         // contention (not CPU preemption); ~1s between refreshes is cheap enough.
 #if CONFIG_IDF_TARGET_ESP32S3
         static constexpr uint32_t kBarRefreshMs = 2000;
 #else
         static constexpr uint32_t kBarRefreshMs = 1000;
 #endif
-        int pct = job_->progress_pct();
+        int pct = loader_->progress_pct();
         if (pct != last_pct_ && lv_tick_elaps(last_tick_) >= kBarRefreshMs) {
             lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
             last_pct_ = pct;
@@ -272,27 +287,25 @@ void FileBrowserScreen::poll() {
         return;
     }
 
-    // Terminal: cancelled / failed just dismiss the modal; Ok opens the card.
-    bool ok = state == imgproc::DecodeJob::State::Ok && !cancelling_;
-    imgproc::Image img;
-    if (ok) img = job_->take_image();
+    // Terminal: on Ok run the completion callback (it holds the loaded data);
+    // cancelled / failed just dismiss the modal.
+    bool ok = state == FileLoader::State::Ok && !cancelling_;
+    auto cb = onLoaded_;  // keep a copy; stopLoad clears the member
     stopLoad();
     lv_modal_close(card_);
     card_ = nullptr;
     bar_ = nullptr;
-    if (ok) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
-        screen_manager.push(std::make_shared<NameCardScreen>(std::move(img)));
-    }
+    if (ok && cb) cb();
 }
 
 void FileBrowserScreen::stopLoad() {
     if (poll_) { lv_timer_delete(poll_); poll_ = nullptr; }
-    job_.reset();
+    loader_.reset();
+    onLoaded_ = nullptr;
     cancelling_ = false;
 }
 
 FileBrowserScreen::~FileBrowserScreen() {
-    if (job_) job_->cancel();  // worker holds its own ref; it finishes on its own
+    if (loader_) loader_->cancel();  // worker holds its own ref; it finishes on its own
     stopLoad();
 }

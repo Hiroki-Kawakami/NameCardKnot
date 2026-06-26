@@ -406,8 +406,11 @@ npm run gen-fixtures   # components/namecard_pdf/test/fixtures/ を再生成
 device は `../components` コンテナで自動検出、host は自前テスト）:
 `inc/namecard_pdf.hpp` 公開 API（`parse_buffer`/`open_file`/`read_asset`/
 `write_share_pdf`/`parse_name_glyphs`/`rle_decode`/`crc32`）、`src/namecard_pdf.cpp`。
-まだ app/simulator/device のビルドには結線していない（切り離し維持。統合は別タスクで
-`SIMULATOR_COMPONENTS` 追加＋consumer の `REQUIRES namecard_pdf`）。
+**app に結線済み**：`app/CMakeLists.txt` の `REQUIRES`、`simulator/CMakeLists.txt` の
+`SIMULATOR_COMPONENTS` に追加。ブラウザは `app/NameCardData`（`FileLoader` 実装）経由で
+`.mnc.pdf` を開き、埋め込み表示 JPEG を `imgproc::decode_file_async(..., offset, length)`
+で部分範囲デコードする。残り：`name_glyphs`→`lv_font` アダプタ＋グリフ・ラスタライズ、
+`.snc.pdf` 用ビューア。
 
 ```sh
 nix develop -c sh components/namecard_pdf/test/run.sh       # 単体（ゴールデン照合）
