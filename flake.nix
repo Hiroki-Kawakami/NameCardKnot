@@ -41,6 +41,8 @@
             pkgs.SDL2
             pkgs.libjpeg
             pkgs.zlib
+            # Web editor SPA toolchain (editor/)
+            pkgs.nodejs_22
           ];
           shellHook = ''
             export ESP_IDF_VERSION="5.4"

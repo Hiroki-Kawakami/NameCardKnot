@@ -28,8 +28,15 @@ case "$TARGET" in
   esp32)
     idf.py -C esp32 flash monitor
     ;;
+  editor)
+    # Web name-card editor SPA (editor/): Vite dev server. Extra args pass
+    # through to Vite (e.g. `./run.sh editor --host` to expose on the LAN).
+    shift
+    [ -d editor/node_modules ] || (cd editor && npm install)
+    (cd editor && npm run dev -- "$@")
+    ;;
   *)
-    echo "Usage: $0 [simulator|simverify <script>|esp32s3|esp32]"
+    echo "Usage: $0 [simulator|simverify <script>|esp32s3|esp32|editor]"
     exit 1
     ;;
 esac
