@@ -77,6 +77,11 @@ components/           # APP-specific reusable components (container; each subdir
     inc/              #     public API: image_processor.hpp (Options/Image/Status/decode_*)
     src/              #     pipeline + in-tree decoders (inflate, png, baseline jpeg); no external deps
     test/             #     host unit tests (run.sh, g++) + fixture generators (gen_fixtures.py, gen_jpeg.c)
+  namecard_pdf/       #   parse the editor's container PDF (NCK footer index) + write share-only PDF → docs/namecard_pdf.md
+    inc/src/          #     public API: namecard_pdf.hpp (parse_buffer/open_file/read_asset/write_share_pdf/parse_name_glyphs); LVGL-free, dep-free
+    test/             #     host tests (run.sh, run_e2e.sh→image_processor) against TS golden fixtures/ (manifest.h)
+editor/               # TypeScript/React/Vite SPA that AUTHORS the container PDF (no backend)
+  src/lib/namecard-pdf/ # framework-free PDF writer: buildNameCardPdf/buildSharePdf + footer/rle/glyphs + gen-fixtures (vitest) → docs/namecard_pdf.md
 simulator/            # SIMULATOR build root
   main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
   verify/             #   sim-harness scripts; captures land in verify/out/ (gitignored)
@@ -338,6 +343,25 @@ decoding (1/1..1/8). The SoC-free pipeline + decoders are host unit-tested via
 `components/image_processor/test/run.sh` (g++, no ESP-IDF), with fixtures built by
 `gen_fixtures.py` (PNG, stdlib zlib) and `gen_jpeg.c` (JPEG, libjpeg). Design
 detail, option semantics, and trade-offs: [`docs/image_processor.md`](docs/image_processor.md).
+
+## Name-card container PDF — `editor/` (writer) + `components/namecard_pdf` (reader)
+
+The editor authors a **dual-purpose PDF**: a normal 2-page document (page 1 = the
+540×960 display image, page 2 = a 1920×1080 share confirmation face) that *also*
+carries machine-readable data for the device. Data (name/url/message UTF-8,
+display/share JPEGs, an optional `name_glyphs` glyph-supplement blob) is embedded
+as ordinary PDF objects; an appended **NCK footer** is a `{type,offset,length,crc}`
+index + a fixed 24-byte trailer, so the device reads the last bytes, seeks, and
+pulls payloads **without parsing PDF syntax**. The file is laid out as `(A)` a
+complete share-only PDF + footer A, then `(B)` an incremental update adding the
+display image + footer B — so the device makes a **share-only PDF by truncating at
+`base_total_length`** (byte copy, no re-serialization). The TS writer is the source
+of truth; the C++ parser is held to **byte-identical golden fixtures** (TS
+`gen-fixtures` → `manifest.h`). Both are **decoupled from WebApp/LVGL and not yet
+wired into the app builds** (integration — sim/device build entries, the
+`name_glyphs`→`lv_font` adapter, canvas glyph rasterization — is a later task).
+Format spec, byte layouts, file locations, and test commands:
+[`docs/namecard_pdf.md`](docs/namecard_pdf.md).
 
 ## Verification & gotchas
 

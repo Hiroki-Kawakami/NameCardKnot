@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/namecard-pdf/bytes.ts","./src/lib/namecard-pdf/constants.ts","./src/lib/namecard-pdf/crc32.ts","./src/lib/namecard-pdf/footer.ts","./src/lib/namecard-pdf/foundation.test.ts","./src/lib/namecard-pdf/gen-fixtures.ts","./src/lib/namecard-pdf/glyphs.ts","./src/lib/namecard-pdf/index.ts","./src/lib/namecard-pdf/pdf-writer.ts","./src/lib/namecard-pdf/pdf.test.ts","./src/lib/namecard-pdf/rle.ts"],"version":"5.9.3"}

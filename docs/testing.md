@@ -107,3 +107,25 @@ packing, invert, truncation), and the PNG/JPEG decoders against real fixtures
 check). Fixtures are generated — see `gen_fixtures.py` / `gen_jpeg.c` and
 [`image_processor.md`](image_processor.md). The end-to-end app display is checked
 by `simulator/verify/namecard.txt` (opens `test.png`, captures the decoded frame).
+
+## Name-card container PDF — `namecard_pdf` + the editor
+
+The container format ([`namecard_pdf.md`](namecard_pdf.md)) is verified across both
+languages, with the **TypeScript writer as the source of truth** and the C++ parser
+held to byte-identical golden fixtures.
+
+```sh
+cd editor && npm install && npm test       # vitest: crc/RLE/footer/glyphs + PDF + truncation==share
+cd editor && npm run gen-fixtures          # regenerate components/namecard_pdf/test/fixtures/ (+ manifest.h)
+nix develop -c sh components/namecard_pdf/test/run.sh      # C++ parser vs the golden manifest.h
+nix develop -c sh components/namecard_pdf/test/run_e2e.sh  # E2E: extracted JPEG -> image_processor::decode_buffer
+```
+
+The **cross-language golden** is the linchpin: `gen-fixtures` emits the PDFs plus
+`manifest.h` (expected name/message, per-asset offset/length/crc32/sha256,
+`base_total_length`); the C++ test reproduces those exactly, confirms
+`write_share_pdf` byte-matches the share golden, expands a `name_glyphs` glyph's RLE
+against a known bit pattern, and checks corrupt/truncated/null inputs return a
+`Status` error. Run `gen-fixtures` after any writer change so both sides stay locked.
+`pdfinfo`/`pdftoppm` (poppler) confirm the hand-written xref renders as a real PDF;
+`run.sh` accepts `NCK_SAN=1` for ASAN/UBSAN where a sanitizer runtime exists.

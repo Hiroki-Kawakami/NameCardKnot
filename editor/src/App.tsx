@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Hiroki Kawakami
 import { useEffect, useRef, useState } from "react";
 
 // Target size for the converted display image (portrait).
