@@ -324,9 +324,11 @@ in-tree decoder (`RowSource`) → box downscale → color convert (linearize →
 luma → gamma) → dither (Bayer / error-diffusion, 2 or 16 levels) → pack
 (L8 high-nibble = EPD gray / I4 / I1). It streams row-by-row, never materializing
 the full-resolution source, so large images no longer OOM silently — they return a
-`Status`. The app uses the async `imgproc::decode_file_async` → `DecodeJob` (a
-background FreeRTOS task pinned to the non-UI core, polled for progress/cancel;
-`decode_file`/`decode_buffer` are the synchronous forms); the BSP↔LVGL-style binding
+`Status`. The app uses the async `imgproc::decode_file_async` → `DecodeJob`, which
+runs the decode across **both cores** — a producer task (the entropy decode, on the
+caller's `task_priority`/`task_core`) feeds a consumer task (color+downscale+dither,
+on the other core) through a source-row ring — polled for progress/cancel
+(`decode_file`/`decode_buffer` are the synchronous, serial forms); the BSP↔LVGL-style binding
 to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`, keeping the component
 panel-/UI-agnostic. Threading model: [`docs/image_processor.md`](docs/image_processor.md).
 

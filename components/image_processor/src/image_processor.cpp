@@ -67,7 +67,8 @@ void Image::reset() {
 
 // ---- Orchestration ----------------------------------------------------------
 
-static Status decode_stream(InputStream &in, const Options &opts, Image &out, Progress *prog) {
+static Status decode_stream(InputStream &in, const Options &opts, Image &out, Progress *prog,
+                            const ParallelCfg *par) {
     out.reset();
     PROF_RESET();
     PROF_T0(t_total);
@@ -86,27 +87,37 @@ static Status decode_stream(InputStream &in, const Options &opts, Image &out, Pr
     st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
     if (st != Status::Ok) return st;
 
-    st = run_pipeline(*dec, opts, out, prog);
+    st = run_pipeline(*dec, opts, out, prog, par);
     PROF_ADD(total_us, t_total);
     PROF_REPORT(out.w, out.h);
     return st;
 }
 
-Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog) {
+static Status decode_file_impl(const char *path, const Options &opts, Image &out, Progress *prog,
+                               const ParallelCfg *par) {
     if (!path) return Status::BadArgument;
     FILE *fp = std::fopen(path, "rb");
     if (!fp) return Status::OpenFailed;
     FileInputStream in(fp);
-    Status st = in.ok() ? decode_stream(in, opts, out, prog) : Status::OutOfMemory;
+    Status st = in.ok() ? decode_stream(in, opts, out, prog, par) : Status::OutOfMemory;
     std::fclose(fp);
     return st;
+}
+
+Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog) {
+    return decode_file_impl(path, opts, out, prog, nullptr);
+}
+
+Status decode_file_parallel(const char *path, const Options &opts, Image &out, Progress *prog,
+                            const ParallelCfg &par) {
+    return decode_file_impl(path, opts, out, prog, &par);
 }
 
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out, Progress *prog) {
     if (!data && len) return Status::BadArgument;
     BufferInputStream in(data, len);
     if (!in.ok()) return Status::OutOfMemory;
-    return decode_stream(in, opts, out, prog);
+    return decode_stream(in, opts, out, prog, nullptr);
 }
 
 }  // namespace imgproc

@@ -134,27 +134,49 @@ emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
   (`vacc/vwsum`) is a per-row reciprocal multiply, and power-of-two error-diffusion
   divisors (FS=16 / Atkinson=8 / Sierra=32) use a shift.
 
-### Threading model (single-threaded decode on a dedicated core)
+### Threading model (dual-core producer/consumer split)
 
-The pipeline itself is **single-threaded**. Concurrency lives one level up, in the
-async `DecodeJob`: the decode runs on its own FreeRTOS task pinned to the core *not*
-running the UI (`1 - xPortGetCoreID()`), while LVGL + the EPD refresh task share the
-other core (LVGL priority < EPD). So the decode runs uninterrupted on a dedicated
-core; only the EPD scan's PSRAM-bus traffic contends with it (hardware, unavoidable).
+The decode runs on **two tasks** so the device's two cores work in parallel. The
+pipeline is cut after the decoder: the **producer** (JPEG/PNG entropy decode — the
+heavy, input-dependent half) and the **consumer** (box-downscale → color →
+dither → pack) run concurrently, connected by a small ring of source-row buffers.
 
-This replaced an earlier two-stage producer/consumer pipeline that split decode and
-color/dither across both cores. That gave only a modest speedup (PSRAM-bandwidth-
-bound) and, once a live progress UI was added, put three CPU-heavy things (producer,
-consumer, UI/EPD) on two cores — the UI's EPD refreshes preempted a decode core and
-tripled the time. A single decode core + a dedicated UI/EPD core is simpler and
-faster for the async-with-progress case; the JPEG band still goes to internal RAM
-(`img_alloc_internal`, PSRAM fallback) and the SD window is 32 KiB to keep PSRAM
-traffic down.
+- `decode_file_async(path, opts, task_priority, task_core)` creates the `imgjob`
+  task with the caller's `task_priority`/`task_core`. That task runs **the decode**
+  (the producer) — decode time swings widely with the image, so it keeps the
+  priority/core the caller controls. The color+dither **consumer** task
+  (`imgcons`) is spawned by `run_pipeline_dual` on the *other* core
+  (`1 - producer_core`) at the same priority.
+- The two are wired by `RowChan` (`src/pipeline.cpp`): an `nslots`-deep ring of
+  `sw*ch`-byte slots plus two counting semaphores (`free`/`filled`), a classic
+  bounded buffer. The producer writes each `next_row()` straight into a free slot
+  (zero-copy) and tags it with the source row index; a `-1` tag is the end
+  sentinel, `-2` a decode error. The ring is internal RAM (`img_alloc_internal`,
+  PSRAM fallback), sized to ~48 KiB (4–32 slots). When the consumer reaches the
+  last output row before the producer is done, it flags `consumer_done` and keeps
+  draining slots so the producer never blocks; the producer stops early on the
+  next iteration. Cancellation/`Truncated`/`OutOfMemory` propagate through the
+  tags and the shared `DecodeJob` status.
+- Profiling stays race-free because each `g_prof` field has a single writer:
+  the producer accumulates `decode/io/entropy/idct/post`, the consumer
+  `transform/dither`. Since the stages now overlap, the per-stage numbers sum to
+  **more** than `total` (that's the win) — `total` is the real wall clock.
 
-The `IMGPROC_ASYNC` macro (default on; host unit tests build `-DIMGPROC_ASYNC=0`)
-only gates the FreeRTOS task in `DecodeJob` — with it off, `decode_file_async` runs
-synchronously. FreeRTOS comes from ESP-IDF on device and `idf_compat` (pthread-
-backed) in the simulator.
+`run_pipeline` runs everything on one task (`run_pipeline_serial`) unless handed a
+`ParallelCfg`; the consumer state lives in `PipelineCore`, shared by both paths so
+they can't drift. The `IMGPROC_ASYNC` macro (default on; host unit tests build
+`-DIMGPROC_ASYNC=0`) gates **both** the `DecodeJob` task and the dual split — with
+it off, `decode_file_async` and `run_pipeline` are fully synchronous and serial.
+FreeRTOS comes from ESP-IDF on device and `idf_compat` (pthread-backed) in the
+simulator (so the simulator exercises the real dual-task code path).
+
+An earlier two-stage pipeline was once removed because, with a live progress UI,
+three CPU-heavy things (producer, consumer, UI/EPD) landed on two cores and the
+EPD refreshes preempted a decode core. The progress bar now refreshes at most once
+a second, and the EPD-refresh task structure has changed since; if a future
+regression points back here, that contention is the first place to look. The JPEG
+band still goes to internal RAM and the SD window is 32 KiB to keep PSRAM traffic
+down.
 
 ## Known optimization opportunities (not yet done)
 

@@ -157,7 +157,10 @@ class DecodeJob {
 public:
     enum class State { Running, Ok, Failed, Cancelled };
 
-    DecodeJob(const char *path, const Options &opts);  // internal: use decode_file_async
+    // internal: use decode_file_async. consumer_core/prio configure the second
+    // (color+dither) task; the decode runs on whatever task calls run().
+    DecodeJob(const char *path, const Options &opts, int consumer_core = -1,
+              int consumer_prio = -1);
 
     int    progress_pct() const;
     State  state() const { return state_.load(); }
@@ -174,6 +177,8 @@ private:
     Image image_;
     std::string path_;
     Options opts_;
+    int consumer_core_;
+    int consumer_prio_;
 };
 
 // Starts a background decode (a FreeRTOS task) and returns the job immediately;
