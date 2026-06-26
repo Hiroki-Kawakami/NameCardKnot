@@ -47,12 +47,31 @@ function emptyGlyphSet(): GlyphSet {
   };
 }
 
+// Draw one text line, routing ASCII runs through Helvetica (/F1, real
+// proportional widths) and the rest through the CID font (/F2). The CID font
+// has no /W array, so every glyph advances by DW=1000 — correct for full-width
+// CJK but wrong for half-width Latin (a gap per character). Emitting Latin via
+// Helvetica lets each run auto-advance by the right width within one BT.
+function textLine(text: string, size: number, x: number, y: number): string {
+  const ops = [`BT ${x} ${y} Td`];
+  for (let i = 0; i < text.length; ) {
+    const latin = text.charCodeAt(i) < 0x80;
+    let j = i;
+    while (j < text.length && text.charCodeAt(j) < 0x80 === latin) j++;
+    const run = text.slice(i, j);
+    ops.push(latin ? `/F1 ${size} Tf ${pdfLiteral(run)} Tj` : `/F2 ${size} Tf <${ucs2beHex(run)}> Tj`);
+    i = j;
+  }
+  ops.push("ET");
+  return ops.join(" ");
+}
+
 // page2 (share) content stream: name (large), URL, message, and share images.
 function shareContent(input: NameCardInput, shareSizes: { w: number; h: number }[]): Uint8Array {
   const ops: string[] = [];
-  ops.push(`BT /F2 72 Tf 100 ${PAGE2_H - 120} Td <${ucs2beHex(input.name)}> Tj ET`);
+  ops.push(textLine(input.name, 72, 100, PAGE2_H - 120));
   ops.push(`BT /F1 36 Tf 100 ${PAGE2_H - 200} Td ${pdfLiteral(input.url)} Tj ET`);
-  ops.push(`BT /F2 36 Tf 100 ${PAGE2_H - 280} Td <${ucs2beHex(input.message)}> Tj ET`);
+  ops.push(textLine(input.message, 36, 100, PAGE2_H - 280));
   shareSizes.forEach((s, i) => {
     const dw = 480;
     const dh = Math.round((dw * s.h) / s.w);
