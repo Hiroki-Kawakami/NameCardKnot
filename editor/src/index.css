@@ -58,6 +58,19 @@ header h1 {
   resize: vertical;
 }
 
+.checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.checkbox input {
+  width: auto;
+}
+
 .thumb {
   margin-top: 6px;
   max-width: 160px;

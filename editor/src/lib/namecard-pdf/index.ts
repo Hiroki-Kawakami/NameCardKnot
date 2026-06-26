@@ -192,7 +192,17 @@ export function buildNameCardPdf(input: NameCardInput): Uint8Array {
     `<< /Type /Page /Parent ${base.pagesObj} 0 R /MediaBox [0 0 ${PAGE1_W} ${PAGE1_H}]` +
       ` /Resources << /XObject << /Im ${displayObj} 0 R >> >> /Contents ${dispContent} 0 R >>`,
   );
-  p.streamObj(dispContent, "", utf8Bytes(`q ${PAGE1_W} 0 0 ${PAGE1_H} 0 0 cm /Im Do Q\n`));
+  // Draw the display image centered at its true aspect within the page (the
+  // editor already fits it to 540x960, but guard arbitrary sizes from stretch).
+  const fmt = (n: number) => +n.toFixed(3);
+  const ds = Math.min(PAGE1_W / w, PAGE1_H / h);
+  const dw = w * ds;
+  const dh = h * ds;
+  p.streamObj(
+    dispContent,
+    "",
+    utf8Bytes(`q ${fmt(dw)} 0 0 ${fmt(dh)} ${fmt((PAGE1_W - dw) / 2)} ${fmt((PAGE1_H - dh) / 2)} cm /Im Do Q\n`),
+  );
   p.dictObj(
     base.pagesObj,
     `<< /Type /Pages /Kids [${dispPage} 0 R ${base.sharePageObj} 0 R] /Count 2 >>`,

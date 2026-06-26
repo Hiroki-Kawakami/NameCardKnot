@@ -1,55 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Hiroki Kawakami
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { buildNameCardPdf } from "./lib/namecard-pdf";
+import { containJpeg, readImageFile } from "./lib/image-export";
 
-// Target size for the converted display image (portrait).
-const WIDTH = 540;
-const HEIGHT = 960;
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-function readImage(
-  e: React.ChangeEvent<HTMLInputElement>,
-): Promise<HTMLImageElement | null> {
-  const file = e.target.files?.[0];
-  if (!file) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(loadImage(reader.result as string));
-    reader.readAsDataURL(file);
-  });
-}
-
-// Draw `img` into the WIDTH×HEIGHT frame with cover-fit (center crop).
-function renderDisplay(canvas: HTMLCanvasElement, img: HTMLImageElement) {
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-  const scale = Math.max(WIDTH / img.width, HEIGHT / img.height);
-  const sw = WIDTH / scale;
-  const sh = HEIGHT / scale;
-  ctx.drawImage(
-    img,
-    (img.width - sw) / 2,
-    (img.height - sh) / 2,
-    sw,
-    sh,
-    0,
-    0,
-    WIDTH,
-    HEIGHT,
-  );
-}
+// Fit boxes (px). The display image targets the EPD; share images are smaller.
+const DISPLAY_W = 540;
+const DISPLAY_H = 960;
+const SHARE_W = 405;
+const SHARE_H = 720;
 
 function ImageField({
   label,
@@ -66,7 +25,10 @@ function ImageField({
       <input
         type="file"
         accept="image/*"
-        onChange={async (e) => onChange(await readImage(e))}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          onChange(file ? await readImageFile(file) : null);
+        }}
       />
       {image && <img className="thumb" src={image.src} alt="" />}
     </label>
@@ -76,30 +38,38 @@ function ImageField({
 export default function App() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [displayImage, setDisplayImage] = useState<HTMLImageElement | null>(
-    null,
-  );
-  const [shareImage1, setShareImage1] = useState<HTMLImageElement | null>(null);
-  const [shareImage2, setShareImage2] = useState<HTMLImageElement | null>(null);
-  const [shareMessage, setShareMessage] = useState("");
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [message, setMessage] = useState("");
+  const [displayImage, setDisplayImage] = useState<HTMLImageElement | null>(null);
+  const [share1SameAsDisplay, setShare1SameAsDisplay] = useState(true);
+  const [share1Image, setShare1Image] = useState<HTMLImageElement | null>(null);
+  const [share2Image, setShare2Image] = useState<HTMLImageElement | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (canvasRef.current && displayImage)
-      renderDisplay(canvasRef.current, displayImage);
-  }, [displayImage]);
+  // Required: name, display image, and share image 1 (which may reuse display).
+  const canSave =
+    name.trim() !== "" && !!displayImage && (share1SameAsDisplay || !!share1Image) && !busy;
 
-  const onSave = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !displayImage) return;
-    canvas.toBlob((blob) => {
-      if (!blob) return;
+  const onSave = async () => {
+    if (!displayImage || !canSave) return;
+    setBusy(true);
+    try {
+      const display = await containJpeg(displayImage, DISPLAY_W, DISPLAY_H);
+
+      const shares: Uint8Array[] = [];
+      const share1Source = share1SameAsDisplay ? displayImage : share1Image;
+      if (share1Source) shares.push(await containJpeg(share1Source, SHARE_W, SHARE_H));
+      if (share2Image) shares.push(await containJpeg(share2Image, SHARE_W, SHARE_H));
+
+      const pdf = buildNameCardPdf({ name, url, message, display, shares });
+      const blob = new Blob([new Uint8Array(pdf)], { type: "application/pdf" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "namecard.png";
+      a.download = `${name || "namecard"}.mnc.pdf`;
       a.click();
       URL.revokeObjectURL(a.href);
-    }, "image/png");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -111,15 +81,11 @@ export default function App() {
       <div className="form">
         <label className="field">
           <span>名前</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
 
         <label className="field">
-          <span>URL</span>
+          <span>URL（任意）</span>
           <input
             type="text"
             value={url}
@@ -128,39 +94,41 @@ export default function App() {
           />
         </label>
 
+        <ImageField label="表示用画像" image={displayImage} onChange={setDisplayImage} />
+
         <div className="field">
-          <span>表示画像</span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={async (e) => setDisplayImage(await readImage(e))}
-          />
-          {displayImage && (
-            <canvas className="preview" ref={canvasRef} width={WIDTH} height={HEIGHT} />
+          <span>共有用画像 1</span>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={share1SameAsDisplay}
+              onChange={(e) => setShare1SameAsDisplay(e.target.checked)}
+            />
+            表示用と同じ画像を使う
+          </label>
+          {!share1SameAsDisplay && (
+            <>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  setShare1Image(file ? await readImageFile(file) : null);
+                }}
+              />
+              {share1Image && <img className="thumb" src={share1Image.src} alt="" />}
+            </>
           )}
         </div>
 
-        <ImageField
-          label="共有画像 1"
-          image={shareImage1}
-          onChange={setShareImage1}
-        />
-        <ImageField
-          label="共有画像 2"
-          image={shareImage2}
-          onChange={setShareImage2}
-        />
+        <ImageField label="共有用画像 2（任意）" image={share2Image} onChange={setShare2Image} />
 
         <label className="field">
-          <span>共有メッセージ</span>
-          <textarea
-            value={shareMessage}
-            rows={4}
-            onChange={(e) => setShareMessage(e.target.value)}
-          />
+          <span>共有メッセージ（任意）</span>
+          <textarea value={message} rows={4} onChange={(e) => setMessage(e.target.value)} />
         </label>
 
-        <button type="button" onClick={onSave} disabled={!displayImage}>
+        <button type="button" onClick={onSave} disabled={!canSave}>
           保存
         </button>
       </div>

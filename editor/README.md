@@ -1,8 +1,14 @@
 # NameCardKnot Editor
 
-A small client-side SPA for preparing name-card images for the NameCardKnot
-device. The firmware is a plain image viewer, so this editor just converts a
-picked image to 540×960, previews it, and saves a PNG you drop onto the SD card.
+A small client-side SPA for authoring NameCardKnot cards. It collects the name,
+URL, message, a display image, and up to two share images, then saves a
+**`.mnc.pdf`** container (a normal PDF that also carries the data + embedded
+JPEGs for the device — see [`../docs/namecard_pdf.md`](../docs/namecard_pdf.md)).
+The display image is scaled to fit 540×960 and share images to fit 405×720
+(aspect preserved); share image 1 can reuse the display image.
+
+The container writer is a framework-free library in `src/lib/namecard-pdf/`
+(`buildNameCardPdf` / `buildSharePdf`), unit-tested with vitest (`npm test`).
 
 TypeScript + React + Vite, no backend.
 
