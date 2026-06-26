@@ -19,27 +19,64 @@ main {
 }
 
 header h1 {
-  margin: 0 0 4px;
+  margin: 0 0 24px;
   font-size: 1.5rem;
 }
 
-header p {
-  margin: 0 0 24px;
-  color: #555;
-  font-size: 0.9rem;
-}
-
-.controls {
+.form {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.controls button {
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.field input[type="text"],
+.field textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.thumb {
+  margin-top: 6px;
+  max-width: 160px;
+  max-height: 160px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.preview {
+  margin-top: 6px;
+  width: 180px;
+  height: 320px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.form button {
+  align-self: flex-start;
   font: inherit;
   font-weight: 600;
-  padding: 10px 20px;
+  padding: 10px 24px;
   border: none;
   border-radius: 6px;
   background: #1a1a1a;
@@ -47,15 +84,7 @@ header p {
   cursor: pointer;
 }
 
-.controls button:disabled {
+.form button:disabled {
   background: #bbb;
   cursor: default;
-}
-
-.preview canvas {
-  width: 270px;
-  height: 480px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
 }

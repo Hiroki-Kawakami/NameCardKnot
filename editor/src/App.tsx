@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-// Target size for the converted name-card image (portrait).
+// Target size for the converted display image (portrait).
 const WIDTH = 540;
 const HEIGHT = 960;
 
@@ -13,8 +13,20 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+function readImage(
+  e: React.ChangeEvent<HTMLInputElement>,
+): Promise<HTMLImageElement | null> {
+  const file = e.target.files?.[0];
+  if (!file) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(loadImage(reader.result as string));
+    reader.readAsDataURL(file);
+  });
+}
+
 // Draw `img` into the WIDTH×HEIGHT frame with cover-fit (center crop).
-function render(canvas: HTMLCanvasElement, img: HTMLImageElement) {
+function renderDisplay(canvas: HTMLCanvasElement, img: HTMLImageElement) {
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   const ctx = canvas.getContext("2d")!;
@@ -37,28 +49,47 @@ function render(canvas: HTMLCanvasElement, img: HTMLImageElement) {
   );
 }
 
+function ImageField({
+  label,
+  image,
+  onChange,
+}: {
+  label: string;
+  image: HTMLImageElement | null;
+  onChange: (img: HTMLImageElement | null) => void;
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        type="file"
+        accept="image/*"
+        onChange={async (e) => onChange(await readImage(e))}
+      />
+      {image && <img className="thumb" src={image.src} alt="" />}
+    </label>
+  );
+}
+
 export default function App() {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [displayImage, setDisplayImage] = useState<HTMLImageElement | null>(
+    null,
+  );
+  const [shareImage1, setShareImage1] = useState<HTMLImageElement | null>(null);
+  const [shareImage2, setShareImage2] = useState<HTMLImageElement | null>(null);
+  const [shareMessage, setShareMessage] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (canvasRef.current && image) render(canvasRef.current, image);
-  }, [image]);
+    if (canvasRef.current && displayImage)
+      renderDisplay(canvasRef.current, displayImage);
+  }, [displayImage]);
 
-  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const dataUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.readAsDataURL(file);
-    });
-    setImage(await loadImage(dataUrl));
-  };
-
-  const onDownload = () => {
+  const onSave = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !displayImage) return;
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement("a");
@@ -75,15 +106,61 @@ export default function App() {
         <h1>NameCardKnot Editor</h1>
       </header>
 
-      <div className="controls">
-        <input type="file" accept="image/*" onChange={onPickImage} />
-        <button type="button" onClick={onDownload} disabled={!image}>
+      <div className="form">
+        <label className="field">
+          <span>名前</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+
+        <label className="field">
+          <span>URL</span>
+          <input
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com"
+          />
+        </label>
+
+        <div className="field">
+          <span>表示画像</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={async (e) => setDisplayImage(await readImage(e))}
+          />
+          {displayImage && (
+            <canvas className="preview" ref={canvasRef} width={WIDTH} height={HEIGHT} />
+          )}
+        </div>
+
+        <ImageField
+          label="共有画像 1"
+          image={shareImage1}
+          onChange={setShareImage1}
+        />
+        <ImageField
+          label="共有画像 2"
+          image={shareImage2}
+          onChange={setShareImage2}
+        />
+
+        <label className="field">
+          <span>共有メッセージ</span>
+          <textarea
+            value={shareMessage}
+            rows={4}
+            onChange={(e) => setShareMessage(e.target.value)}
+          />
+        </label>
+
+        <button type="button" onClick={onSave} disabled={!displayImage}>
           保存
         </button>
-      </div>
-
-      <div className="preview">
-        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} />
       </div>
     </main>
   );
