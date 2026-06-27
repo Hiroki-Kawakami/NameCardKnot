@@ -10,4 +10,8 @@ class HomeScreen : public Screen {
 public:
     void build() override;
     void onAppear() override;
+
+private:
+    lv_obj_t *myCardButtonCreate();
+    lv_obj_t *noCardButtonCreate();
 };
