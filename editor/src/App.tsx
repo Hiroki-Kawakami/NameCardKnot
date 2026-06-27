@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { buildNameCardPdf } from "./lib/namecard-pdf";
 import { containJpeg, readImageFile } from "./lib/image-export";
+import { buildNameGlyphs } from "./lib/glyph-raster";
 
 // Fit boxes (px). The display image targets the EPD; share images are smaller.
 const DISPLAY_W = 540;
@@ -60,7 +61,10 @@ export default function App() {
       if (share1Source) shares.push(await containJpeg(share1Source, SHARE_W, SHARE_H));
       if (share2Image) shares.push(await containJpeg(share2Image, SHARE_W, SHARE_H));
 
-      const pdf = buildNameCardPdf({ name, url, message, display, shares });
+      // Embed glyphs for name characters the device's built-in font lacks.
+      const nameGlyphs = await buildNameGlyphs(name);
+
+      const pdf = buildNameCardPdf({ name, url, message, display, shares, nameGlyphs });
       const blob = new Blob([new Uint8Array(pdf)], { type: "application/pdf" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
