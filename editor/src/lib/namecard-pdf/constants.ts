@@ -43,6 +43,13 @@ export const GLYPHS_COMPRESS_RLE = 1;
 // lv_font. Not a shared/adjustable constant for now (see §3.2 decision).
 export const GLYPH_PX = 48;
 
+// Device built-in noto_sans_jp_48 metrics (lv_font_conv output). Embedded glyphs
+// are tagged with these — not the rasterizing canvas font's own metrics — so the
+// device renders them on the same baseline/line as the built-in font. base_line
+// is measured from the TOP (= line_height - lv_font_t.base_line, i.e. 56 - 13).
+export const GLYPH_LINE_HEIGHT = 56;
+export const GLYPH_BASELINE = 43;
+
 // Page geometry (pt = px 1:1; device-display oriented, see §3.3).
 export const PAGE1_W = 540; // display image page
 export const PAGE1_H = 960;

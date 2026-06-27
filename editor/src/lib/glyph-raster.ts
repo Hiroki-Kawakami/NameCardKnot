@@ -6,6 +6,7 @@
 // Fonts). The packed GlyphSet is then embedded by buildNameCardPdf.
 
 import { DEFAULT_GLYPH_PX, type Glyph, type GlyphSet } from "./namecard-pdf/glyphs.ts";
+import { GLYPH_BASELINE, GLYPH_LINE_HEIGHT } from "./namecard-pdf/constants.ts";
 import { deviceHasGlyph } from "./jp-glyphs.ts";
 
 // Distinct name characters not covered by the device font, in first-seen order.
@@ -40,12 +41,22 @@ function ensureJapaneseFont(): Promise<string> {
       document.fonts.add(local);
       return "NckNotoLocal";
     } catch {
-      if (!document.getElementById("nck-noto-css")) {
-        const link = document.createElement("link");
+      // No local Noto: pull it from Google Fonts. Wait for the stylesheet to
+      // actually load so its @font-face rules are registered before we
+      // rasterize — otherwise document.fonts.load() finds nothing and canvas
+      // silently falls back to a system font (e.g. a mincho on macOS).
+      let link = document.getElementById("nck-noto-css") as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement("link");
         link.id = "nck-noto-css";
         link.rel = "stylesheet";
         link.href = "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500&display=swap";
+        const loaded = new Promise<void>((resolve, reject) => {
+          link!.addEventListener("load", () => resolve());
+          link!.addEventListener("error", () => reject(new Error("failed to load Noto Sans JP from Google Fonts")));
+        });
         document.head.appendChild(link);
+        await loaded;
       }
       return "'Noto Sans JP'";
     }
@@ -57,15 +68,17 @@ export async function buildNameGlyphs(name: string): Promise<GlyphSet> {
   const px = DEFAULT_GLYPH_PX;
   const missing = missingChars(name);
   if (missing.length === 0) {
-    return { glyphPx: px, baseLine: Math.round(px * 0.8), lineHeight: Math.round(px * 1.17), glyphs: [] };
+    return { glyphPx: px, baseLine: GLYPH_BASELINE, lineHeight: GLYPH_LINE_HEIGHT, glyphs: [] };
   }
 
   const family = await ensureJapaneseFont();
   const font = `500 ${px}px ${family}`;
-  try {
-    await document.fonts.load(font, missing.join(""));
-  } catch {
-    // proceed; missing glyphs will rasterize as tofu/blank rather than fail
+  // load() resolves with the faces it actually matched and loaded; an empty
+  // result means Noto Sans JP is unavailable, so abort rather than silently
+  // rasterize a system fallback (wrong typeface + baseline).
+  const faces = await document.fonts.load(font, missing.join(""));
+  if (faces.length === 0) {
+    throw new Error("Noto Sans JP is unavailable; cannot rasterize name glyphs");
   }
 
   const size = px * 3;
@@ -77,9 +90,10 @@ export async function buildNameGlyphs(name: string): Promise<GlyphSet> {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
-  const fm = ctx.measureText("永");
-  const baseLine = Math.round(fm.fontBoundingBoxAscent || px * 0.8);
-  const lineHeight = Math.round((fm.fontBoundingBoxAscent + fm.fontBoundingBoxDescent) || px * 1.17);
+  // Tag glyphs with the device built-in font's metrics (not the canvas font's)
+  // so they share its baseline/line height on-device.
+  const baseLine = GLYPH_BASELINE;
+  const lineHeight = GLYPH_LINE_HEIGHT;
 
   const penX = px; // integer pen origin, with margin around it
   const penY = px * 2; // baseline (room above for ascenders, below for descenders)

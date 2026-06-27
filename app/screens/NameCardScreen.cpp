@@ -124,8 +124,6 @@ void NameCardScreen::openInfo() {
     lv_obj_set_style_text_font(name, nameFont(), 0);
     lv_obj_set_style_pad_ver(name, 10, 0);
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_border_width(name, 1, 0);
-    lv_obj_set_style_border_opa(name, LV_OPA_COVER, 0);
 
     lv_obj_t *qr = lv_qrcode_create(card);
     lv_obj_set_width(qr, LV_PCT(100));

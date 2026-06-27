@@ -31,7 +31,10 @@ public:
         font_.get_glyph_dsc = get_glyph_dsc_cb;
         font_.get_glyph_bitmap = get_glyph_bitmap_cb;
         font_.line_height = gs.line_height;
-        font_.base_line = gs.base_line;
+        // The blob's base_line is measured from the TOP (docs §4.4); LVGL's
+        // base_line is from the bottom of line_height. Convert so embedded
+        // glyphs share the built-in font's baseline.
+        font_.base_line = gs.line_height - gs.base_line;
         font_.dsc = this;
     }
 
