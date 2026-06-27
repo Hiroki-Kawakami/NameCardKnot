@@ -54,17 +54,18 @@ void HomeScreen::build() {
         lv_label_set_text(name, "Hiroki Kawakami");
         lv_obj_set_style_text_font(name, &lv_font_montserrat_32, 0);
 
-        auto id = lv_label_create(container);
-        lv_label_set_text(id, "@hiroki_cockatoo");
-        lv_obj_set_style_text_font(id, &lv_font_montserrat_24, 0);
-
         lv_spacer_create(container, 0, 0, 1);
 
-        lv_hor_separator_create(container, 20);
-        auto share_button = lv_button_create(container);
+        lv_hor_separator_create(container, 10);
+        auto row = lv_container_create(container, LV_FLEX_FLOW_ROW);
+        lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(row, 10, 0);
+        lv_obj_set_style_pad_column(row, 10, 0);
+
+        auto share_button = lv_button_create(row);
         lv_obj_remove_style_all(share_button);
-        lv_obj_set_size(share_button, LV_PCT(100), 80);
-        lv_obj_set_style_margin_hor(share_button, 20, 0);
+        lv_obj_set_height(share_button, 64);
+        lv_obj_set_flex_grow(share_button, 1);
         lv_obj_set_flex_flow(share_button, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(share_button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(share_button, 10, 0);
@@ -80,6 +81,20 @@ void HomeScreen::build() {
         lv_label_set_text(share_label, "Share");
         lv_obj_set_style_text_font(share_label, &lv_font_montserrat_32, 0);
 
+        lv_ver_separator_create(row);
+
+        auto edit_button = lv_button_create(row);
+        lv_obj_remove_style_all(edit_button);
+        lv_obj_set_size(edit_button, 64, 64);
+        lv_obj_set_style_border_width(edit_button, 2, 0);
+        lv_obj_set_style_radius(edit_button, 8, 0);
+        lv_obj_set_style_border_color(edit_button, lv_color_white(), 0);
+        lv_obj_set_style_border_color(edit_button, lv_color_black(), LV_STATE_PRESSED);
+
+        auto edit_icon = lv_label_create(edit_button);
+        lv_label_set_text(edit_icon, LUCIDE_SQUARE_PEN);
+        lv_obj_set_style_text_font(edit_icon, R.font.lucide_40, 0);
+        lv_obj_center(edit_icon);
     }
 
     { // Buttons
