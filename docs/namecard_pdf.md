@@ -3,7 +3,8 @@
 > **STATUS: 実装済み（v1）。** 本ドキュメントが TypeScript 出力ライブラリと C++
 > パースライブラリの「唯一の真実」です。両実装はこの仕様に追従させること。実装の
 > 場所とテストは末尾 §8 を参照。WebApp / LVGL とは切り離してあり、UI 統合（共有画
-> 像レイアウトの作り込み、`name_glyphs`→`lv_font` アダプタ）は別タスク。
+> 像レイアウトの作り込み）は別タスク。`name_glyphs`→`lv_font` アダプタは app 側に
+> 実装済み（`app/lv_glyph_font.hpp`、§8）。
 
 ## 1. 目的とスコープ
 
@@ -409,8 +410,10 @@ device は `../components` コンテナで自動検出、host は自前テスト
 **app に結線済み**：`app/CMakeLists.txt` の `REQUIRES`、`simulator/CMakeLists.txt` の
 `SIMULATOR_COMPONENTS` に追加。ブラウザは `app/NameCardData`（`FileLoader` 実装）経由で
 `.mnc.pdf` を開き、埋め込み表示 JPEG を `imgproc::decode_file_async(..., offset, length)`
-で部分範囲デコードする。残り：`name_glyphs`→`lv_font` アダプタ＋グリフ・ラスタライズ、
-`.snc.pdf` 用ビューア。
+で部分範囲デコードする。`name_glyphs`→`lv_font` アダプタは app 側に実装済み
+（`app/lv_glyph_font.hpp`：blob を実行時 `lv_font_t` に変換し A8 マスク展開。
+`NameCardData::name_glyphs()` が blob をパース・保持し、`NameCardScreen` が名前ラベルの
+fallback chain に繋ぐ）。残り：エディタの canvas グリフ・ラスタライズ、`.snc.pdf` 用ビューア。
 
 ```sh
 nix develop -c sh components/namecard_pdf/test/run.sh       # 単体（ゴールデン照合）

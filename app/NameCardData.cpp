@@ -28,6 +28,7 @@ std::shared_ptr<NameCardData> NameCardData::load(const std::string &path,
         const uint32_t len = disp->length;
         self->kind_ = Kind::Card;
         self->card_ = std::move(card);
+        self->load_name_glyphs();
         self->job_ = imgproc::decode_file_async(path.c_str(), opts, NCD_TASK_PRIORITY, NCD_TASK_CORE,
                                                 off, len);
     } else if (pst == nckpdf::Status::NotNckPdf) {
@@ -39,6 +40,17 @@ std::shared_ptr<NameCardData> NameCardData::load(const std::string &path,
         self->status_ = imgproc::Status::DecodeError;
     }
     return self;
+}
+
+void NameCardData::load_name_glyphs() {
+    const nckpdf::Asset *a = card_.find(nckpdf::AssetType::NameGlyphs);
+    if (!a || a->length == 0) return;  // most names need no supplement
+    glyph_blob_.resize(a->length);
+    if (nckpdf::read_asset(path_.c_str(), *a, glyph_blob_.data(), glyph_blob_.size()) != nckpdf::Status::Ok)
+        return;
+    if (nckpdf::parse_name_glyphs(glyph_blob_.data(), glyph_blob_.size(), glyphs_) != nckpdf::Status::Ok)
+        return;
+    has_glyphs_ = true;
 }
 
 NameCardData::~NameCardData() {

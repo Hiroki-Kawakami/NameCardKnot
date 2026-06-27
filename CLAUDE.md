@@ -316,9 +316,12 @@ modal code. An `lv_timer` polls the loader, drives the bar (throttled — each E
 refresh is costly), and on completion runs the callback, which pushes
 `NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` keeps the
 `shared_ptr<NameCardData>` (so the decoded buffer outlives the `lv_image`) and
-shows `display_image()` 1:1 via `lv_image_adapter.hpp`. (Plain `.snc.pdf` —
-share-only, no display image — is not openable yet; a dedicated screen comes
-later, as does the `name_glyphs`→`lv_font` adapter for rare-kanji names.)
+shows `display_image()` 1:1 via `lv_image_adapter.hpp`. Its `Info` modal shows the
+name/url + a QR (`lv_qrcode`) of the url; the name label's font is a fallback chain
+Montserrat → NotoSansJP → the PDF's embedded glyph supplement, built via the
+`app/lv_glyph_font.hpp` adapter (`name_glyphs` blob → runtime `lv_font_t`, A8 mask
+expansion; `NameCardData::name_glyphs()` parses/owns the blob). (Plain `.snc.pdf` —
+share-only, no display image — is not openable yet; a dedicated screen comes later.)
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
@@ -368,8 +371,10 @@ of truth; the C++ parser is held to **byte-identical golden fixtures** (TS
 `gen-fixtures` → `manifest.h`). The reader is **wired into the app**: `app/` lists
 `namecard_pdf` in `REQUIRES`, the simulator in `SIMULATOR_COMPONENTS`, and the
 browser opens `.mnc.pdf` via `NameCardData` (see Screens above). Still LVGL-free
-itself; still to do — the `name_glyphs`→`lv_font` adapter + canvas glyph
-rasterization (rare-kanji names), and a `.snc.pdf` viewer. Format spec, byte
+itself; the `name_glyphs`→`lv_font` adapter is now done app-side
+(`app/lv_glyph_font.hpp`, used by `NameCardScreen`'s name font fallback chain).
+Still to do — the editor's canvas glyph rasterization (rare-kanji names), and a
+`.snc.pdf` viewer. Format spec, byte
 layouts, file locations, and test commands:
 [`docs/namecard_pdf.md`](docs/namecard_pdf.md).
 

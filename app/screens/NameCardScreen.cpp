@@ -100,15 +100,32 @@ void NameCardScreen::openMenu() {
     }
 }
 
+const lv_font_t *NameCardScreen::nameFont() {
+    if (name_font_) return name_font_;
+    mont_ = lv_font_montserrat_48;     // copy: built-in fonts are const
+    noto_ = *R.font.noto_sans_jp_48;
+    const lv_font_t *tail = nullptr;
+    if (const auto *gs = data_->name_glyphs()) {
+        glyph_font_ = std::make_unique<GlyphFont>(*gs);
+        tail = glyph_font_->font();
+    }
+    noto_.fallback = tail;
+    mont_.fallback = &noto_;
+    name_font_ = &mont_;
+    return name_font_;
+}
+
 void NameCardScreen::openInfo() {
     auto card = lv_modal_open(root_);
 
     lv_obj_t *name = lv_label_create(card);
     lv_label_set_text(name, data_->name().c_str());
     lv_obj_set_width(name, LV_PCT(100));
-    lv_obj_set_style_text_font(name, R.font.noto_sans_jp_48, 0);
+    lv_obj_set_style_text_font(name, nameFont(), 0);
     lv_obj_set_style_pad_ver(name, 10, 0);
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_border_width(name, 1, 0);
+    lv_obj_set_style_border_opa(name, LV_OPA_COVER, 0);
 
     lv_obj_t *qr = lv_qrcode_create(card);
     lv_obj_set_width(qr, LV_PCT(100));
