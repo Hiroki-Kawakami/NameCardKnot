@@ -46,4 +46,6 @@ the shell automatically via `.envrc`.
 ## License
 
 Lucide icons are bundled under the ISC license — see
-[`app/resources/Lucide_License.txt`](app/resources/Lucide_License.txt).
+[`app/resources/Lucide_License.txt`](app/resources/Lucide_License.txt).  
+Noto Sans JP is bundled under the SIL Open Font License — see
+[`app/resources/OFL.txt`](app/resources/OFL.txt).
