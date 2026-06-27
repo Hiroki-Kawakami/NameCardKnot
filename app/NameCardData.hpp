@@ -6,6 +6,7 @@
 #pragma once
 #include "FileLoader.hpp"
 #include "L8View.hpp"
+#include "MyCardStore.hpp"
 #include "image_processor.hpp"
 #include "namecard_pdf.hpp"
 #include <memory>
@@ -68,6 +69,8 @@ private:
     std::vector<uint8_t> glyph_blob_;  // raw name_glyphs bytes (glyphs_ points in)
     nckpdf::GlyphSet glyphs_;
     bool has_glyphs_ = false;
+    std::vector<uint8_t> pdf_;            // cached card: the PDF copy (glyphs_ point in)
+    mycard::MappedImage display_map_;     // cached card: MMIO display image (view_ points in)
     std::shared_ptr<imgproc::DecodeJob> job_;
     mutable imgproc::Image image_;
     mutable L8View view_;  // display image as L8 (image_ for SD, mmap for cached)

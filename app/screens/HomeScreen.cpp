@@ -93,13 +93,17 @@ void HomeScreen::onAppear() {
 }
 
 void HomeScreen::onDisappear() {
-    // Drop the MMIO-backed images before leaving: an import unmaps/re-maps the
-    // partition, invalidating these pointers.
+    // Drop the MMIO-backed images before leaving: an import rewrites the
+    // partition, so no mapping over it may stay live.
     if (mycard_section_) lv_obj_clean(mycard_section_);
+    preview_map_ = mycard::MappedImage{};
+    name_map_ = mycard::MappedImage{};
 }
 
 void HomeScreen::importMyCard() {
-    if (mycard_section_) lv_obj_clean(mycard_section_);  // release MMIO images before the rewrite
+    if (mycard_section_) lv_obj_clean(mycard_section_);
+    preview_map_ = mycard::MappedImage{};  // release mappings before the rewrite
+    name_map_ = mycard::MappedImage{};
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
     screen_manager.push(std::make_shared<FileBrowserScreen>("/sdcard", FileBrowserScreen::Mode::ImportMyCard));
 }
@@ -107,6 +111,8 @@ void HomeScreen::importMyCard() {
 void HomeScreen::refreshMyCard() {
     if (!mycard_section_) return;
     lv_obj_clean(mycard_section_);
+    preview_map_ = mycard::MappedImage{};
+    name_map_ = mycard::MappedImage{};
     if (mycard::Store::available())
         myCardButtonCreate(mycard_section_);
     else
@@ -127,7 +133,8 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
 
     auto image = lv_image_create(button);
     lv_obj_set_size(image, 169, 300);
-    if (l8view_fill_lv_dsc(mycard::Store::image_view(mycard::BLOB_PREVIEW), preview_dsc_)) {
+    preview_map_ = mycard::Store::map_image(mycard::BLOB_PREVIEW);
+    if (l8view_fill_lv_dsc(preview_map_.view(), preview_dsc_)) {
         lv_image_set_src(image, &preview_dsc_);
     } else {
         lv_obj_set_style_bg_color(image, lv_color_hex(0x888888), 0);
@@ -145,7 +152,8 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
     lv_obj_set_style_pad_top(title, 20, 0);
     lv_spacer_create(container, 0, 0, 1);
 
-    if (l8view_fill_lv_dsc(mycard::Store::image_view(mycard::BLOB_NAME), name_dsc_)) {
+    name_map_ = mycard::Store::map_image(mycard::BLOB_NAME);
+    if (l8view_fill_lv_dsc(name_map_.view(), name_dsc_)) {
         auto name = lv_image_create(container);
         lv_image_set_src(name, &name_dsc_);
     }

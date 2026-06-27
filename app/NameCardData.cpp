@@ -49,20 +49,21 @@ std::shared_ptr<NameCardData> NameCardData::load_cached() {
     auto self = std::shared_ptr<NameCardData>(new NameCardData());
     self->kind_ = Kind::Card;
 
-    // Metadata: parse the mapped PDF (no decode). Glyph supplement, if any, is
-    // parsed in place from the same mapping (no copy) — glyphs_ then references
-    // the mmap, which outlives this as long as the card stays mounted.
-    const uint8_t *pdf = Store::blob(BLOB_PDF);
+    // Metadata: copy the stored PDF into RAM and parse it (no decode). The glyph
+    // supplement, if any, is parsed in place from that copy (pdf_ outlives this).
     uint32_t pdf_len = Store::blob_len(BLOB_PDF);
-    if (pdf && nckpdf::parse_buffer(pdf, pdf_len, self->card_) == nckpdf::Status::Ok) {
+    self->pdf_.resize(pdf_len);
+    if (pdf_len && Store::read_blob(BLOB_PDF, self->pdf_.data(), pdf_len) &&
+        nckpdf::parse_buffer(self->pdf_.data(), pdf_len, self->card_) == nckpdf::Status::Ok) {
         const nckpdf::Asset *a = self->card_.find(nckpdf::AssetType::NameGlyphs);
         if (a && a->length && uint64_t(a->offset) + a->length <= pdf_len &&
-            nckpdf::parse_name_glyphs(pdf + a->offset, a->length, self->glyphs_) == nckpdf::Status::Ok)
+            nckpdf::parse_name_glyphs(self->pdf_.data() + a->offset, a->length, self->glyphs_) == nckpdf::Status::Ok)
             self->has_glyphs_ = true;
     }
 
-    // Display image straight from MMIO.
-    self->view_ = Store::image_view(BLOB_DISPLAY);
+    // Display image mapped on demand (held by display_map_ for this object's life).
+    self->display_map_ = Store::map_image(BLOB_DISPLAY);
+    self->view_ = self->display_map_.view();
     self->state_ = self->view_.valid() ? State::Ok : State::Failed;
     self->finalized_ = true;
     return self;

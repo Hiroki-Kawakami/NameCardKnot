@@ -87,6 +87,14 @@ hit new ones.
   (`sdl_panel` emits it from its input pump), so the app's touch path is identical
   on both targets. (The EPD engine itself is device-only — the sim replays no
   waveform.)
+- **Don't permanently `esp_partition_mmap` a big region on the original ESP32.**
+  Its read-only data (DROM) mmap window is ~4MB and the app's `.rodata` (fonts/icons,
+  ~1.9MB here) already lives there. A persistent 2MB map (the first My Card cut did
+  this) leaves almost no window and makes `paper` **freeze silently** on the next
+  full EPD refresh — the `esp32s3` window is laid out differently and survived, which
+  is exactly how it slipped through. `app/MyCardStore` now reads the header by copy
+  (`esp_partition_read`) and maps only the image blob being shown, on demand, via a
+  `MappedImage` that unmaps on leave. See [`mycard.md`](mycard.md).
 - **The simulator SD redirect only catches calls compiled into the executable.**
   `sd_redirect.c` overrides `open`/`fopen`/`opendir`/`stat`/`rename`/`unlink` by
   defining them in the binary so the static link binds the app's references to them

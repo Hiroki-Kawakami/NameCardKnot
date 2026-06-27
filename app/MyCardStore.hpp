@@ -10,8 +10,14 @@
 
 // MyCardStore: the persisted "My Card" living in a dedicated 2MB flash
 // partition ("mycard"), managed as a single custom binary layout (no
-// filesystem). The display/preview/name caches are stored as raw L8 so they can
-// be shown straight from the memory-mapped flash (MMIO) with no RAM copy.
+// filesystem). The display/preview/name caches are stored as raw L8 and can be
+// shown straight from memory-mapped flash (MMIO) with no RAM copy.
+//
+// The partition is NOT mapped wholesale: on the original ESP32 the ~4MB DROM
+// mmap window is mostly taken by .rodata, so a permanent 2MB map starves it and
+// hangs the board. Instead the header is read into a small RAM cache, the PDF is
+// read by copy, and only the image blob being displayed is mmap'd on demand via
+// a MappedImage handle that unmaps on destruction (see docs/mycard.md).
 //
 // Layout (offsets from the partition start):
 //   0x0000  Header (magic + per-blob index), within the first 4KB sector
@@ -59,25 +65,50 @@ struct Header {
 };
 static_assert(sizeof(Header) % 4 == 0, "flash writes must be 4-byte aligned");
 
+// A single image blob mapped from flash for display (MMIO). Hold this while an
+// lv_image references view(); destroying it unmaps. Move-only.
+class MappedImage {
+public:
+    MappedImage() = default;
+    ~MappedImage();
+    MappedImage(MappedImage &&o) noexcept;
+    MappedImage &operator=(MappedImage &&o) noexcept;
+    MappedImage(const MappedImage &) = delete;
+    MappedImage &operator=(const MappedImage &) = delete;
+
+    const L8View &view() const { return view_; }
+    bool valid() const { return view_.valid(); }
+
+private:
+    friend class Store;
+    void release();
+
+    L8View    view_;
+    uintptr_t handle_ = 0;  // device: esp_partition_mmap_handle_t; simulator: unused
+};
+
 class Store {
 public:
-    // Find + memory-map the partition. Idempotent; does not require a valid card.
+    // Find the partition + read the header into a RAM cache. Idempotent; does not
+    // require a valid card and never maps the bulk of the partition.
     static bool mount();
-    // True iff a complete, CRC-valid card header is present.
+    // True iff a complete, CRC-valid card header is cached.
     static bool available();
 
-    static const Header  *header();          // nullptr if unmapped
-    static const uint8_t *blob(BlobId id);   // MMIO pointer, or nullptr
-    static uint32_t       blob_len(BlobId id);
+    static const Header *header();  // cached header (RAM), nullptr if unmounted
+    static uint32_t      blob_len(BlobId id);
 
-    // A non-owning view of a stored L8 image (no copy). Empty (data == nullptr)
-    // unless the card is available and the blob is FMT_L8. Valid while the card
-    // stays mapped (i.e. until the next import remaps the partition).
-    static L8View image_view(BlobId id);
+    // Copy a blob into a caller buffer (for the PDF + small metadata). `len` is
+    // clamped to the blob length; returns false if unavailable or read failed.
+    static bool read_blob(BlobId id, void *buf, uint32_t len);
+
+    // Map one stored L8 image on demand. Empty MappedImage unless the card is
+    // available and the blob is FMT_L8. Keep the handle alive while displaying.
+    static MappedImage map_image(BlobId id);
 
     // Replaces the stored card. erase -> write_blob... -> commit, in that order.
-    // The partition is unmapped while writing, so callers must drop any
-    // MMIO-backed lv_image before begin() and re-acquire after commit().
+    // Callers must hold no MappedImage over a blob being rewritten (drop them
+    // first); commit() refreshes the header cache.
     class Writer {
     public:
         Writer() = default;

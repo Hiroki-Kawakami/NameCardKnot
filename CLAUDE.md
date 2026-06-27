@@ -327,9 +327,11 @@ share-only, no display image — is not openable yet; a dedicated screen comes l
 
 **My Card** persists one chosen `.mnc.pdf` to a dedicated 2MB flash partition
 (`mycard`) so Home can open it instantly. No filesystem: `app/MyCardStore` lays the
-partition out as a custom blob index (full PDF + display/preview/name L8 caches),
-mmap'd so images show straight from flash (MMIO, no RAM load). `HomeScreen`'s My
-Card button uses the preview + name-raster blobs and opens via
+partition out as a custom blob index (full PDF + display/preview/name L8 caches).
+The header is read into RAM and the PDF copied out; only the image blob being shown
+is mmap'd on demand (a `MappedImage` RAII handle, unmapped on leave) — a permanent
+2MB map starves the original ESP32's ~4MB DROM mmap window and hangs paper.
+`HomeScreen`'s My Card button uses the preview + name-raster blobs and opens via
 `NameCardData::load_cached()`; the **Edit** button runs `FileBrowserScreen` in
 `Mode::ImportMyCard` (lists `.mnc.pdf` only), whose `ImportJob` (a `FileLoader`)
 decodes the caches and writes the partition (erase → blobs → magic header last, for
