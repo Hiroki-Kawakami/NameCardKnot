@@ -111,6 +111,33 @@ hit new ones.
   SDL — it only copies a snapshot the main thread maintains in
   `sdl_panel_pump_input()`.
 
+### HotKnot (`bsp_hotknot_*`, GT911)
+
+- **Touch recovery after a session needs a wired RESET.** `bsp_hotknot_end()`
+  hard-resets the GT911 and re-boots its touch firmware via INT-sync, but
+  `gt911_reset` only does a real reset when the board wires the RESET pin, and
+  `gt911_int_sync` only runs when INT is output-capable. **M5Paper and M5PaperS3
+  leave RESET on the on-module circuit (unwired), so after a HotKnot session the
+  chip stays in its SRAM subsystem and won't scan touch until a power cycle** —
+  this is a Paper-family constraint, not a HotKnot limitation. A board that wires
+  RESET + an output-capable INT (e.g. Tab5) recovers fully. The recovery path is
+  capability-driven, so don't assume reset is impossible.
+- **The reader task is mandatory and drives the whole session.** `bsp_hotknot_begin`
+  returns `ESP_ERR_INVALID_STATE` without it (`bsp_config.touch.task_priority` must
+  be > 0). Pair detection, FW load, and receive-polling all run as a session step
+  installed on that one task — the chip can't serve touch and HotKnot at once, so
+  there is a single I2C owner, lock, and task.
+- **Events fire on the reader task, not the UI thread.** The `bsp_hotknot_event_cb_t`
+  runs off the LVGL/app context; marshal to it (`lv_async_call`) and keep the cb
+  short. `RECEIVED` `data` points at the task's buffer — valid only during the
+  callback, so copy it before returning.
+- **Touch is alive only through PAIRED.** From `PAIRED` (FW load) until
+  `bsp_hotknot_end()` the chip's main firmware isn't running, so `bsp_touch_read`
+  / the reader task report nothing. Don't expect taps during data exchange.
+- **The two ends must `begin()` with opposite roles** (`SLAVE` vs `MASTER`) — the
+  approach command differs (0x20/0x21) and same-role terminals won't pair. Which
+  side sends after `READY` is independent of role (either may `bsp_hotknot_send`).
+
 ## LVGL / ui_framework
 
 - **LVGL runs on a different thread than your app task.** On device, esp_lvgl_port

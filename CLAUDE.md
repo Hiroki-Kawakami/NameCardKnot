@@ -92,7 +92,7 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     inc/              #     public API: bsp.h, bsp_types.h
     inc_private/      #     internal vtables: bsp_display.h, bsp_touch.h
     src/              #     shared dispatch: bsp_display.c, bsp_touch.c
-    devices/          #     DEVICE chip drivers: ed047tc1 (i80 EPD descriptor) + it8951e (SPI EPD: driver + it8951e_epd bsp_display provider) + gt911 (I2C touch)
+    devices/          #     DEVICE chip drivers: ed047tc1 (i80 EPD descriptor) + it8951e (SPI EPD: driver + it8951e_epd bsp_display provider) + gt911 (I2C touch) + bm8563 (I2C RTC)
     driver/           #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free transaction-index core, host-tested) + test/
     simulator/        #     SIM SDL backend: sdl_panel.{c,h}
     boards/<board>/   #     per-board bring-up + board.cmake (source/requirement lists); paper_s3 (ED047TC1) and paper (IT8951E, shared EPD/SD SPI bus, paper_config.h)
@@ -148,19 +148,22 @@ selected board's `boards/<board>/board.cmake`, which fills `BOARD_DEVICE_SRCS` /
   `paper_sd.c` only attaches/detaches the card device — it never inits/frees the bus.
 
 Touch on both is the in-tree `gt911` driver (no managed dependency) — it adds the
-`gt911` dir to `PRIV_INCLUDE_DIRS` and relies on `driver` for `i2c_master`/`gpio`;
-the board's `*_panel.c` brings up the I2C bus and registers the provider. Both SD
-paths add `fatfs`/`sdmmc`/`esp_driver_sdmmc`/`esp_driver_sdspi` to `PRIV_REQUIRES`;
-the simulator folds `simulator/sd_redirect.c` instead.
+`gt911` dir to `PRIV_INCLUDE_DIRS` and relies on `driver` for `i2c_master`/`gpio`.
+The board file (`<board>.c`) owns the shared I2C bus (like the SPI bus): it brings
+the bus up once, hands the handle to `*_panel.c` for the touch provider, and
+creates the in-tree `bm8563` RTC (`devices/bm8563`, also in `PRIV_INCLUDE_DIRS`)
+on the same bus. Both SD paths add `fatfs`/`sdmmc`/`esp_driver_sdmmc`/
+`esp_driver_sdspi` to `PRIV_REQUIRES`; the simulator folds `simulator/sd_redirect.c`
++ `simulator/rtc_sim.c` instead.
 
 ## BSP — the display/touch seam (`bsp_*`)
 
 `app/` calls `bsp_*` on both targets; the per-target split lives inside the BSP.
 Drivers are struct-inheritance vtables: a provider embeds `bsp_display_t` /
-`bsp_touch_t` as its first member and is registered with
-`bsp_display_set_active()` / `bsp_touch_set_active()` by the board's `bsp_init()`.
-`src/bsp_display.c` / `src/bsp_touch.c` implement the public API once by
-dispatching through the active vtable.
+`bsp_touch_t` / `bsp_rtc_t` as its first member and is registered with
+`bsp_display_set_active()` / `bsp_touch_set_active()` / `bsp_rtc_set_active()` by
+the board's `bsp_init()`. `src/bsp_display.c` / `src/bsp_touch.c` / `src/bsp_rtc.c`
+implement the public API once by dispatching through the active vtable.
 
 ### Display vtable (`inc_private/bsp_display.h`)
 
@@ -247,6 +250,50 @@ Outside the display/touch vtables: `bsp_sd_mount`/`bsp_sd_unmount`/`bsp_sd_is_mo
 
 The app wraps the mount at `/sdcard` behind `mount_sd_card()`/`unmount_sd_card()`
 (`NameCardKnot.hpp`); `FileBrowserScreen` is the consumer.
+
+### RTC (`bsp_rtc_*`)
+
+External I2C RTC behind the `bsp_rtc_t` vtable (`inc_private/bsp_rtc.h`):
+`get_time`/`set_time`/`time_is_valid`/`deinit` always present; the countdown timer
+(`timer_start(seconds, repeat)`/`timer_stop`/`timer_is_expired`/`timer_clear`) and
+`set_int_cb` are optional (NULL → `ESP_ERR_NOT_SUPPORTED`); with no provider the
+calls return `ESP_ERR_INVALID_STATE`. `bsp_rtc_datetime_t` is a plain calendar
+struct (no `<time.h>` in the BSP). The one-shot/interval timer maps onto the
+chip's countdown block; `repeat` distinguishes auto-reload from one-shot (the
+driver's INT handler stops a one-shot on the expiry it services).
+
+- **device** (`devices/bm8563/`, both boards): BM8563 on the same I2C bus as the
+  GT911 touch — the board file (`<board>.c`) brings the bus up and creates the RTC
+  (non-fatal, like touch), `*_panel.c` only consumes the bus for touch. `int_io`
+  is `GPIO_NUM_NC` — the INT pin gates the M5Paper power
+  rail, not a readable GPIO, so `set_int_cb` is unavailable but the timer's INT
+  still asserts in hardware (use it to wake from sleep, then `timer_is_expired` +
+  `timer_stop` on boot). RX8130 (`devices/rx8130/`) is the future second chip; the
+  seam is chip-agnostic so a new board just calls its `*_rtc_create()`.
+- **simulator** (`simulator/rtc_sim.c`): `get_time` reads the host clock, `set_time`
+  is a no-op, timer ops absent. Registered by the board's `*_sim.c`.
+
+SoC↔chip time sync (SNTP, restoring system time after VSYS drop) is **app policy,
+not BSP** — the BSP exposes the chip mechanism (`time_is_valid` included) and the
+app drives the direction/timing.
+
+### HotKnot (`bsp_hotknot_*`)
+
+Proximity peer-to-peer over the GT911 panel, behind the same vtable pattern
+(`bsp_hotknot_t` in `inc_private/bsp_hotknot.h`, dispatch in `src/bsp_hotknot.c`,
+no provider → `ESP_ERR_NOT_SUPPORTED`). The only provider is GT911:
+`gt911_hotknot_create()` binds to the active touch chip (`gt911_active_handle`,
+file-static) and the board registers it after touch. The callback-based public
+API (`bsp_hotknot_begin(role, cb)` / `send` / `end`, bsp.h) hides FW load, ACK,
+and chip status — the session state machine runs **on the touch reader task**
+(required; `begin` errors without it) via an installable session step
+(`gt911_internal.h`), so touch + HotKnot share one I2C owner/lock/task. Pairing,
+ready, and received frames arrive as events. Board-specific SNR tuning lives in
+`gt911_config_t.hotknot` (set per board in `*_panel.c`), not driver macros. Touch
+recovery after a session is **capability-driven**: it needs a wired RESET +
+output-capable INT, which Paper/PaperS3 lack (RESET unwired → power cycle), so
+that is a board constraint, not a HotKnot assumption — see
+[`docs/gotchas.md`](docs/gotchas.md).
 
 ## UI framework — LVGL port abstraction + UI utilities
 
