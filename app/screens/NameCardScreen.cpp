@@ -62,15 +62,25 @@ void NameCardScreen::openMenu() {
             lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
         };
 
-        auto row1 = lv_container_create(card, LV_FLEX_FLOW_ROW);
-        lv_obj_set_size(row1, LV_PCT(100), LV_SIZE_CONTENT);
-        lv_obj_set_style_pad_column(row1, 10, 0);
-        lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row1, LUCIDE_SQUARE_ARROW_RIGHT_ENTER, "Receive", [](lv_event_t*) {});
-        lv_ver_separator_create(row1);
-        button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [](lv_event_t*) {});
+        if (data_->is_card()) {
+            auto row1 = lv_container_create(card, LV_FLEX_FLOW_ROW);
+            lv_obj_set_size(row1, LV_PCT(100), LV_SIZE_CONTENT);
+            lv_obj_set_style_pad_column(row1, 10, 0);
+            lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            button(row1, LUCIDE_SQUARE_ARROW_RIGHT_ENTER, "Receive", [](lv_event_t*) {});
+            lv_ver_separator_create(row1);
+            button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [](lv_event_t*) {});
+            lv_ver_separator_create(row1);
+            button(row1, LUCIDE_INFO, "Info", [this, card](lv_event_t*) {
+                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+                lv_async_call([this, card]() {
+                    lv_modal_close(card);
+                    openInfo();
+                });
+            });
 
-        lv_hor_separator_create(card);
+            lv_hor_separator_create(card);
+        }
 
         auto row2 = lv_container_create(card, LV_FLEX_FLOW_ROW);
         lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
@@ -88,4 +98,33 @@ void NameCardScreen::openMenu() {
             lv_modal_close(card);
         });
     }
+}
+
+void NameCardScreen::openInfo() {
+    auto card = lv_modal_open(root_);
+
+    lv_obj_t *name = lv_label_create(card);
+    lv_label_set_text(name, data_->name().c_str());
+    lv_obj_set_width(name, LV_PCT(100));
+    lv_obj_set_style_text_font(name, R.font.noto_sans_jp_48, 0);
+    lv_obj_set_style_pad_ver(name, 10, 0);
+    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t *qr = lv_qrcode_create(card);
+    lv_obj_set_width(qr, LV_PCT(100));
+    lv_qrcode_set_size(qr, 300);
+    lv_qrcode_set_dark_color(qr, lv_color_black());
+    lv_qrcode_set_light_color(qr, lv_color_white());
+    lv_qrcode_update(qr, data_->url().c_str(), data_->url().size());
+
+    lv_obj_t *url = lv_label_create(card);
+    lv_label_set_text(url, data_->url().c_str());
+    lv_obj_set_width(url, LV_PCT(100));
+    lv_obj_set_style_pad_ver(url, 10, 0);
+    lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+        lv_modal_close(card);
+    });
 }

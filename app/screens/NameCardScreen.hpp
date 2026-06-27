@@ -20,4 +20,5 @@ private:
     lv_image_dsc_t dsc_{};   // references the display image's buffer (kept alive by data_)
 
     void openMenu();
+    void openInfo();
 };
