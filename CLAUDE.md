@@ -315,13 +315,26 @@ new file type is just a new loader + callback at the call site, not new per-type
 modal code. An `lv_timer` polls the loader, drives the bar (throttled — each EPD
 refresh is costly), and on completion runs the callback, which pushes
 `NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` keeps the
-`shared_ptr<NameCardData>` (so the decoded buffer outlives the `lv_image`) and
-shows `display_image()` 1:1 via `lv_image_adapter.hpp`. Its `Info` modal shows the
-name/url + a QR (`lv_qrcode`) of the url; the name label's font is a fallback chain
-Montserrat → NotoSansJP → the PDF's embedded glyph supplement, built via the
-`app/lv_glyph_font.hpp` adapter (`name_glyphs` blob → runtime `lv_font_t`, A8 mask
+`shared_ptr<NameCardData>` (so the buffer outlives the `lv_image`) and shows it 1:1
+via `display_view()` — an `L8View` (`app/L8View.hpp`) that unifies an SD load's
+decoded image and a cached card's mmap blob, blitted through `l8view_fill_lv_dsc`
+(`app/lv_image_adapter.hpp`). Its `Info` modal shows the name/url + a QR
+(`lv_qrcode`) of the url; the name font is a Montserrat → NotoSansJP → embedded
+glyph supplement fallback chain built by `app/NameFont.hpp` (over the
+`app/lv_glyph_font.hpp` adapter: `name_glyphs` blob → runtime `lv_font_t`, A8 mask
 expansion; `NameCardData::name_glyphs()` parses/owns the blob). (Plain `.snc.pdf` —
 share-only, no display image — is not openable yet; a dedicated screen comes later.)
+
+**My Card** persists one chosen `.mnc.pdf` to a dedicated 2MB flash partition
+(`mycard`) so Home can open it instantly. No filesystem: `app/MyCardStore` lays the
+partition out as a custom blob index (full PDF + display/preview/name L8 caches),
+mmap'd so images show straight from flash (MMIO, no RAM load). `HomeScreen`'s My
+Card button uses the preview + name-raster blobs and opens via
+`NameCardData::load_cached()`; the **Edit** button runs `FileBrowserScreen` in
+`Mode::ImportMyCard` (lists `.mnc.pdf` only), whose `ImportJob` (a `FileLoader`)
+decodes the caches and writes the partition (erase → blobs → magic header last, for
+power-fail safety). The name is rasterized offscreen (`app/NameRaster`, 48px L8
+canvas → 32px) so Home needs no fonts. Full spec: [`docs/mycard.md`](docs/mycard.md).
 
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`

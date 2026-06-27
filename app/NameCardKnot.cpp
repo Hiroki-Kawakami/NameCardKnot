@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include <assert.h>
 #include "HomeScreen.hpp"
+#include "MyCardStore.hpp"
 
 static const char *TAG = "NameCardKnot";
 
@@ -162,6 +163,7 @@ void app_entry() {
     bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
     lvgl_init();
+    mycard::Store::mount();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](){

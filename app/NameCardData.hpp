@@ -5,6 +5,7 @@
 
 #pragma once
 #include "FileLoader.hpp"
+#include "L8View.hpp"
 #include "image_processor.hpp"
 #include "namecard_pdf.hpp"
 #include <memory>
@@ -21,6 +22,11 @@ public:
     static std::shared_ptr<NameCardData> load(const std::string &path,
                                               const imgproc::Options &opts);
 
+    // Build from the saved My Card (mycard flash partition) with no decode: the
+    // display image is viewed straight from MMIO and metadata is parsed from the
+    // mapped PDF. Returns nullptr when no card is stored. State is Ok at once.
+    static std::shared_ptr<NameCardData> load_cached();
+
     ~NameCardData();
     NameCardData(const NameCardData &) = delete;
     NameCardData &operator=(const NameCardData &) = delete;
@@ -36,6 +42,12 @@ public:
 
     // Owned here — keep the shared_ptr alive while an lv_image references it.
     const imgproc::Image &display_image() const;
+
+    // The display image as a non-owning L8 view, unified across both sources:
+    // for an SD load it points into the decoded image_, for a cached card into
+    // the mmap'd flash blob. The shared_ptr (and, for a cached card, the store's
+    // mapping) must outlive any lv_image built from it.
+    const L8View &display_view() const;
 
     bool is_card() const { return kind_ == Kind::Card; }
     const std::string &name() const { return card_.name; }
@@ -58,6 +70,7 @@ private:
     bool has_glyphs_ = false;
     std::shared_ptr<imgproc::DecodeJob> job_;
     mutable imgproc::Image image_;
+    mutable L8View view_;  // display image as L8 (image_ for SD, mmap for cached)
     mutable State state_ = State::Loading;
     mutable imgproc::Status status_ = imgproc::Status::Ok;
     mutable bool finalized_ = false;

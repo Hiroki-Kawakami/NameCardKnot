@@ -12,9 +12,9 @@
 NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data) : data_(std::move(data)) {}
 
 void NameCardScreen::build() {
-    // The image is already decoded (NameCardData, at the display resolution), so
-    // just show it 1:1 (no LVGL scaling) via the L8 -> lv_image_dsc adapter.
-    if (imgproc_fill_lv_dsc(data_->display_image(), dsc_)) {
+    // The image is already at display resolution (decoded for an SD load, or
+    // mapped from flash for a cached card), so show it 1:1 (no LVGL scaling).
+    if (l8view_fill_lv_dsc(data_->display_view(), dsc_)) {
         auto image = lv_image_create(root_);
         lv_image_set_src(image, &dsc_);
         lv_obj_center(image);
@@ -101,18 +101,8 @@ void NameCardScreen::openMenu() {
 }
 
 const lv_font_t *NameCardScreen::nameFont() {
-    if (name_font_) return name_font_;
-    mont_ = lv_font_montserrat_48;     // copy: built-in fonts are const
-    noto_ = *R.font.noto_sans_jp_48;
-    const lv_font_t *tail = nullptr;
-    if (const auto *gs = data_->name_glyphs()) {
-        glyph_font_ = std::make_unique<GlyphFont>(*gs);
-        tail = glyph_font_->font();
-    }
-    noto_.fallback = tail;
-    mont_.fallback = &noto_;
-    name_font_ = &mont_;
-    return name_font_;
+    if (!name_font_) name_font_ = std::make_unique<NameFont>(data_->name_glyphs());
+    return name_font_->font();
 }
 
 void NameCardScreen::openInfo() {

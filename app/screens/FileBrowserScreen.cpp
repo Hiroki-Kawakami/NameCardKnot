@@ -6,6 +6,7 @@
 #include "FileBrowserScreen.hpp"
 #include "NameCardScreen.hpp"
 #include "NameCardData.hpp"
+#include "ImportJob.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
 #include <algorithm>
@@ -15,7 +16,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-FileBrowserScreen::FileBrowserScreen(std::string path) : path_stack_({path}) {}
+FileBrowserScreen::FileBrowserScreen(std::string path, Mode mode)
+    : mode_(mode), path_stack_({path}) {}
 
 void FileBrowserScreen::build() {
     createNavigation("");
@@ -65,6 +67,7 @@ void FileBrowserScreen::load() {
             if (stat(full.c_str(), &st) != 0) continue;
             is_dir = S_ISDIR(st.st_mode);
         }
+        if (!accept(ent->d_name, is_dir)) continue;
         entries_.push_back(Entry{ent->d_name, is_dir});
     }
     closedir(dir);
@@ -205,6 +208,13 @@ static bool ends_with(const std::string &s, const char *suffix) {
     return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
 }
 
+bool FileBrowserScreen::accept(const std::string &name, bool is_dir) const {
+    if (is_dir) return true;
+    // Import lists only the .mnc.pdf containers it can save as a My Card.
+    if (mode_ == Mode::ImportMyCard) return ends_with(name, ".mnc.pdf");
+    return true;
+}
+
 void FileBrowserScreen::open(int index) {
     auto &e = entries_[index];
     auto path = path_stack_.back() + "/" + e.name;
@@ -215,17 +225,30 @@ void FileBrowserScreen::open(int index) {
         return;
     }
 
-    // Decode at the display resolution (Contain, 16-gray).
     lv_display_t *disp = lv_display_get_default();
-    imgproc::Options opts;
-    opts.target_w = lv_display_get_horizontal_resolution(disp);
-    opts.target_h = lv_display_get_vertical_resolution(disp);
-    opts.fit = imgproc::Fit::Contain;
-    opts.levels = 16;
+    uint16_t dw = lv_display_get_horizontal_resolution(disp);
+    uint16_t dh = lv_display_get_vertical_resolution(disp);
 
-    // Per file type: pick the loader (data-class init) + the completion
+    // Per mode/file-type: pick the loader (data-class init) + the completion
     // transition. The modal + poll loop around them is common (openProgress).
+    if (mode_ == Mode::ImportMyCard) {
+        if (!ends_with(e.name, ".mnc.pdf")) return;
+        loader_ = ImportJob::start(path, dw, dh);
+        onLoaded_ = [] {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            screen_manager.pop();  // back to Home; onAppear reflects the new card
+        };
+        openProgress();
+        return;
+    }
+
+    // Open mode: view the image/card 1:1 (decode at the display resolution).
     if (is_image(e.name) || ends_with(e.name, ".mnc.pdf")) {
+        imgproc::Options opts;
+        opts.target_w = dw;
+        opts.target_h = dh;
+        opts.fit = imgproc::Fit::Contain;
+        opts.levels = 16;
         auto data = NameCardData::load(path, opts);
         loader_ = data;
         onLoaded_ = [this, data] {

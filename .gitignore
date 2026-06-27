@@ -10,3 +10,4 @@ nvs_data.json
 simulator/verify/out
 simulator/sdcard/*
 !simulator/sdcard/.gitkeep
+simulator/mycard.img

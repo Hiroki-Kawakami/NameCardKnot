@@ -8,15 +8,11 @@
 #include "resources.h"
 #include "NameCardKnot.hpp"
 #include "FileBrowserScreen.hpp"
+#include "NameCardScreen.hpp"
+#include "NameCardData.hpp"
+#include "MyCardStore.hpp"
+#include "lv_image_adapter.hpp"
 #include "GrayscaleTestScreen.hpp"
-
-namespace {
-
-void select_my_card(lv_event_t*) {
-
-}
-
-}
 
 void HomeScreen::build() {
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);
@@ -36,9 +32,10 @@ void HomeScreen::build() {
         lv_obj_set_style_pad_bottom(version, 40, 0);
     }
 
-    { // My Card
-        noCardButtonCreate();
-        // myCardButtonCreate();
+    { // My Card — filled from the store (refreshed on every appearance)
+        mycard_section_ = lv_container_create(root_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_size(mycard_section_, LV_PCT(100), LV_SIZE_CONTENT);
+        refreshMyCard();
     }
 
     { // Buttons
@@ -92,18 +89,50 @@ void HomeScreen::build() {
 
 void HomeScreen::onAppear() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    refreshMyCard();  // a just-finished import may have replaced the card (new mmap)
 }
 
-lv_obj_t *HomeScreen::myCardButtonCreate() {
-    auto button = lv_button_create(root_);
+void HomeScreen::onDisappear() {
+    // Drop the MMIO-backed images before leaving: an import unmaps/re-maps the
+    // partition, invalidating these pointers.
+    if (mycard_section_) lv_obj_clean(mycard_section_);
+}
+
+void HomeScreen::importMyCard() {
+    if (mycard_section_) lv_obj_clean(mycard_section_);  // release MMIO images before the rewrite
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    screen_manager.push(std::make_shared<FileBrowserScreen>("/sdcard", FileBrowserScreen::Mode::ImportMyCard));
+}
+
+void HomeScreen::refreshMyCard() {
+    if (!mycard_section_) return;
+    lv_obj_clean(mycard_section_);
+    if (mycard::Store::available())
+        myCardButtonCreate(mycard_section_);
+    else
+        noCardButtonCreate(mycard_section_);
+}
+
+void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
+    auto button = lv_button_create(parent);
     lv_obj_set_size(button, LV_PCT(100), 320);
     lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_event_fn(button, LV_EVENT_CLICKED, [](lv_event_t*) {
+        auto data = NameCardData::load_cached();
+        if (!data) return;
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+        screen_manager.push(std::make_shared<NameCardScreen>(data));
+    });
 
     auto image = lv_image_create(button);
     lv_obj_set_size(image, 169, 300);
-    lv_obj_set_style_bg_color(image, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_bg_opa(image, LV_OPA_COVER, 0);
+    if (l8view_fill_lv_dsc(mycard::Store::image_view(mycard::BLOB_PREVIEW), preview_dsc_)) {
+        lv_image_set_src(image, &preview_dsc_);
+    } else {
+        lv_obj_set_style_bg_color(image, lv_color_hex(0x888888), 0);
+        lv_obj_set_style_bg_opa(image, LV_OPA_COVER, 0);
+    }
 
     auto container = lv_container_create(button, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(container, LV_OBJ_FLAG_CLICKABLE);
@@ -116,9 +145,10 @@ lv_obj_t *HomeScreen::myCardButtonCreate() {
     lv_obj_set_style_pad_top(title, 20, 0);
     lv_spacer_create(container, 0, 0, 1);
 
-    auto name = lv_label_create(container);
-    lv_label_set_text(name, "Hiroki Kawakami");
-    lv_obj_set_style_text_font(name, &lv_font_montserrat_32, 0);
+    if (l8view_fill_lv_dsc(mycard::Store::image_view(mycard::BLOB_NAME), name_dsc_)) {
+        auto name = lv_image_create(container);
+        lv_image_set_src(name, &name_dsc_);
+    }
 
     lv_spacer_create(container, 0, 0, 1);
 
@@ -155,23 +185,21 @@ lv_obj_t *HomeScreen::myCardButtonCreate() {
     lv_obj_set_style_radius(edit_button, 8, 0);
     lv_obj_set_style_border_color(edit_button, lv_color_white(), 0);
     lv_obj_set_style_border_color(edit_button, lv_color_black(), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(edit_button, select_my_card, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_fn(edit_button, LV_EVENT_CLICKED, [this](lv_event_t*) { importMyCard(); });
 
     auto edit_icon = lv_label_create(edit_button);
     lv_label_set_text(edit_icon, LUCIDE_DOWNLOAD);
     lv_obj_set_style_text_font(edit_icon, R.font.lucide_40, 0);
     lv_obj_center(edit_icon);
-
-    return button;
 }
 
-lv_obj_t *HomeScreen::noCardButtonCreate() {
-    auto button = lv_button_create(root_);
+void HomeScreen::noCardButtonCreate(lv_obj_t *parent) {
+    auto button = lv_button_create(parent);
     lv_obj_set_size(button, LV_PCT(100), 320);
     lv_obj_set_flex_flow(button, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(button, 20, 0);
-    lv_obj_add_event_cb(button, select_my_card, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_fn(button, LV_EVENT_CLICKED, [this](lv_event_t*) { importMyCard(); });
 
     auto title = lv_label_create(button);
     lv_label_set_text(title, "No My Card");
@@ -188,6 +216,4 @@ lv_obj_t *HomeScreen::noCardButtonCreate() {
     auto edit_label = lv_label_create(row);
     lv_label_set_text(edit_label, "Import from SD Card");
     lv_obj_set_style_text_font(edit_label, &lv_font_montserrat_24, 0);
-
-    return button;
 }

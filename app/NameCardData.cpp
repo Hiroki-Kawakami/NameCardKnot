@@ -4,6 +4,7 @@
  */
 
 #include "NameCardData.hpp"
+#include "MyCardStore.hpp"
 
 #define NCD_TASK_PRIORITY 3
 #define NCD_TASK_CORE 1
@@ -42,6 +43,31 @@ std::shared_ptr<NameCardData> NameCardData::load(const std::string &path,
     return self;
 }
 
+std::shared_ptr<NameCardData> NameCardData::load_cached() {
+    using namespace mycard;
+    if (!Store::available()) return nullptr;
+    auto self = std::shared_ptr<NameCardData>(new NameCardData());
+    self->kind_ = Kind::Card;
+
+    // Metadata: parse the mapped PDF (no decode). Glyph supplement, if any, is
+    // parsed in place from the same mapping (no copy) — glyphs_ then references
+    // the mmap, which outlives this as long as the card stays mounted.
+    const uint8_t *pdf = Store::blob(BLOB_PDF);
+    uint32_t pdf_len = Store::blob_len(BLOB_PDF);
+    if (pdf && nckpdf::parse_buffer(pdf, pdf_len, self->card_) == nckpdf::Status::Ok) {
+        const nckpdf::Asset *a = self->card_.find(nckpdf::AssetType::NameGlyphs);
+        if (a && a->length && uint64_t(a->offset) + a->length <= pdf_len &&
+            nckpdf::parse_name_glyphs(pdf + a->offset, a->length, self->glyphs_) == nckpdf::Status::Ok)
+            self->has_glyphs_ = true;
+    }
+
+    // Display image straight from MMIO.
+    self->view_ = Store::image_view(BLOB_DISPLAY);
+    self->state_ = self->view_.valid() ? State::Ok : State::Failed;
+    self->finalized_ = true;
+    return self;
+}
+
 void NameCardData::load_name_glyphs() {
     const nckpdf::Asset *a = card_.find(nckpdf::AssetType::NameGlyphs);
     if (!a || a->length == 0) return;  // most names need no supplement
@@ -64,6 +90,8 @@ void NameCardData::finalize() const {
             return;
         case imgproc::DecodeJob::State::Ok:
             image_ = job_->take_image();
+            view_ = L8View{image_.data, image_.w, image_.h,
+                           static_cast<uint32_t>(image_.stride), image_.levels};
             state_ = State::Ok;
             break;
         case imgproc::DecodeJob::State::Cancelled:
@@ -104,4 +132,9 @@ std::string NameCardData::label() const {
 const imgproc::Image &NameCardData::display_image() const {
     finalize();
     return image_;
+}
+
+const L8View &NameCardData::display_view() const {
+    finalize();
+    return view_;
 }

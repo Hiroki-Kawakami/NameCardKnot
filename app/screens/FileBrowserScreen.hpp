@@ -14,12 +14,19 @@
 
 class FileBrowserScreen : public NavigationScreen {
 public:
-    explicit FileBrowserScreen(std::string path = "/sdcard");
+    // Open: tap an image/.mnc.pdf to view it (NameCardScreen).
+    // ImportMyCard: list only .mnc.pdf, tap to import into the My Card flash.
+    enum class Mode { Open, ImportMyCard };
+
+    explicit FileBrowserScreen(std::string path = "/sdcard", Mode mode = Mode::Open);
     ~FileBrowserScreen() override;
     void build() override;
     void back() override;
 
 private:
+    Mode mode_;
+    bool accept(const std::string &name, bool is_dir) const;  // listing filter per mode
+
     struct Entry {
         std::string name;
         bool dir;
