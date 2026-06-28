@@ -6,6 +6,8 @@
 #include "ReceiveScreen.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
+#include "dokan.h"
+#include <cstring>
 
 void ReceiveScreen::build() {
     createNavigation("Receive");
@@ -39,6 +41,21 @@ void ReceiveScreen::build() {
     if (data_) {
         loadShareCardData();
     }
+
+    startHotKnot(BSP_HOTKNOT_ROLE_SLAVE);
+}
+
+void ReceiveScreen::stashReceived(const uint8_t *data, size_t len) {
+    size_t n = len < sizeof descriptor_ ? len : sizeof descriptor_ - 1;
+    memcpy(descriptor_, data, n);
+    descriptor_[n] = '\0';
+}
+
+void ReceiveScreen::onHotKnotDone() {
+    endHotKnot();
+    if (dokan_descriptor_valid(descriptor_, DOKAN_APP_ID)) setProgressMessage(descriptor_);
+    else setProgressMessage("Received an invalid descriptor.");
+    addModalCloseButton();
 }
 
 void ReceiveScreen::loadShareCardData() {

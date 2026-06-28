@@ -8,15 +8,15 @@
 #include "SharedCardData.hpp"
 #include "NameFont.hpp"
 #include "image_processor.hpp"
+#include "bsp.h"
 #include <atomic>
 #include <memory>
 #include <vector>
 
-// Base for the card-transfer screens (ShareScreen / ReceiveScreen). HotKnot and
-// dokan only differ in Master/Slave (AP/STA) role, so the two screens share most
-// of their behavior; this holds the common parts. For now that is the peer card
-// (data_), its name font, and the background decode of its share images onto the
-// row built by createShareImages(). The HotKnot/dokan session will live here too.
+// Base for the card-transfer screens (ShareScreen / ReceiveScreen): the peer card
+// (data_), its name font, the background share-image decode, and the HotKnot
+// session that exchanges the dokan descriptor. Subclasses pick the role and react
+// through the on*() hooks (all on the LVGL thread).
 class TransferScreen : public NavigationScreen {
 public:
     explicit TransferScreen(std::shared_ptr<SharedCardData> data);
@@ -33,6 +33,24 @@ protected:
 
     // Lazily built name font (Montserrat -> NotoSansJP -> PDF glyph supplement).
     const lv_font_t *nameFont();
+
+    // HotKnot descriptor exchange. Approach for `role`; startHotKnot returns false
+    // where HotKnot is unavailable (e.g. the simulator).
+    bool startHotKnot(bsp_hotknot_role_t role);
+    void endHotKnot();
+    void sendHotKnot(const void *data, size_t len);  // caller keeps `data` alive
+    void failHotKnot(esp_err_t err);
+
+    virtual void onHotKnotPaired();             // default: open the progress modal
+    virtual void onHotKnotReady() {}            // ready to send (master)
+    virtual void onHotKnotDone() {}             // sent (master) / received (slave)
+    virtual void onHotKnotFailed(esp_err_t err);
+    virtual void stashReceived(const uint8_t *data, size_t len) {}  // on the reader task
+    virtual const char *transferTitle() const { return "Transfer"; }
+
+    void showProgressModal(const char *message);
+    void setProgressMessage(const char *message);
+    void addModalCloseButton(const char *text = "Close");
 
     std::shared_ptr<SharedCardData> data_;
 
@@ -62,4 +80,23 @@ private:
     std::atomic<bool> stop_{false};
     std::atomic<bool> worker_running_{false};
     bool worker_started_ = false;
+
+    // hotKnotEvent (reader task) and sendTask publish hk_state_ with release;
+    // pollHotKnot (LVGL thread) replays the transitions with acquire.
+    enum class HkState : uint8_t { Idle, Approaching, Paired, Ready, Done, Failed };
+    static void hotKnotEvent(const bsp_hotknot_event_t *ev, void *arg);
+    void pollHotKnot();
+    static void sendTask(void *arg);
+
+    lv_obj_t *modal_ = nullptr;
+    lv_obj_t *modal_message_ = nullptr;
+    lv_timer_t *hk_timer_ = nullptr;
+    bool hk_active_ = false;
+
+    std::atomic<HkState> hk_state_{HkState::Idle};
+    std::atomic<bool> hk_send_busy_{false};
+    HkState hk_seen_ = HkState::Idle;
+    esp_err_t hk_err_ = ESP_OK;
+    const void *hk_send_data_ = nullptr;
+    size_t hk_send_len_ = 0;
 };

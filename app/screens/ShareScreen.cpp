@@ -6,6 +6,7 @@
 #include "ShareScreen.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
+#include <cstring>
 
 void ShareScreen::build() {
     createNavigation("Share");
@@ -143,4 +144,25 @@ void ShareScreen::build() {
         createCheckbox(nullptr);
         lv_obj_add_event_fn(button, LV_EVENT_CLICKED, createCheckbox);
     }
+
+    startHotKnot(BSP_HOTKNOT_ROLE_MASTER);
+}
+
+void ShareScreen::onHotKnotReady() {
+    if (dokan_descriptor_create(DOKAN_TRANSPORT_WIFI, DOKAN_APP_ID,
+                                descriptor_, sizeof descriptor_) != ESP_OK) {
+        failHotKnot(ESP_FAIL);
+        return;
+    }
+    setProgressMessage("Sending...");
+    // HotKnot frames are even-length; send the descriptor including its NUL.
+    size_t len = strlen(descriptor_) + 1;
+    if (len & 1) len++;
+    sendHotKnot(descriptor_, len);
+}
+
+void ShareScreen::onHotKnotDone() {
+    endHotKnot();
+    setProgressMessage(descriptor_);
+    addModalCloseButton();
 }
