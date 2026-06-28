@@ -5,31 +5,44 @@
 
 #pragma once
 #include "widgets.hpp"
-#include "dokan.h"
+#include "SharedCardData.hpp"
+#include "image_processor.hpp"
+#include <atomic>
+#include <memory>
+#include <vector>
 
 class ShareScreen : public NavigationScreen {
 public:
+    explicit ShareScreen(std::shared_ptr<SharedCardData> data);
+    ~ShareScreen() override;
     void build() override;
     void onAppear() override;
     void onDisappear() override;
+    void back() override;
 
 private:
-    static void onEvent(const dokan_event_t *ev, void *arg);  // dokan I/O task
-    void pumpSend();                                          // dokan I/O task
-    void tick();                                              // LVGL thread (lv_timer)
+    // One decoded share image. The worker fills img/dsc then publishes state with
+    // release; the poll timer reads state with acquire before touching img/dsc.
+    // Held by unique_ptr so dsc keeps a stable address for lv_image_set_src.
+    struct Slot {
+        imgproc::Image   img;
+        lv_image_dsc_t   dsc{};
+        std::atomic<int> state{0};  // 0 pending, 1 ready, 2 failed
+        bool             shown = false;
+    };
 
-    lv_obj_t   *value_label_;
-    lv_obj_t   *status_label_;
-    lv_timer_t *ui_timer_ = nullptr;
+    void startWorker();
+    void stopWorker();  // request stop, then wait for the worker to exit
+    void worker();      // worker-task body: decode each share image in order
+    static void workerTask(void *arg);
+    void poll();        // LVGL-context: add an lv_image for each newly ready slot
 
-    dokan_session_t *session_ = nullptr;
-    dokan_stream_t  *stream_ = nullptr;
-    uint8_t  *buf_ = nullptr;
-    uint32_t  len_ = 0;
-    uint32_t  off_ = 0;
-    bool      finished_ = false;
+    std::shared_ptr<SharedCardData> data_;
+    lv_obj_t *share_images_ = nullptr;
+    lv_timer_t *poll_timer_ = nullptr;
 
-    // written by the I/O task, read by the lv_timer — no LVGL calls off-thread
-    const char *volatile status_ = "";
-    volatile uint32_t sent_ = 0;
+    std::vector<std::unique_ptr<Slot>> slots_;
+    std::atomic<bool> stop_{false};
+    std::atomic<bool> worker_running_{false};
+    bool worker_started_ = false;
 };

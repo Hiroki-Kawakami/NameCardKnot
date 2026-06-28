@@ -180,8 +180,12 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
     lv_obj_set_style_border_color(share_button, lv_color_white(), 0);
     lv_obj_set_style_border_color(share_button, lv_color_black(), LV_STATE_PRESSED);
     lv_obj_add_event_cb(share_button, [](lv_event_t*) {
+        auto card = NameCardData::load_cached();
+        if (!card) return;
+        auto shared = card->share();
+        if (!shared || !shared->valid()) return;
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
-        screen_manager.push(std::make_shared<ShareScreen>());
+        screen_manager.push(std::make_shared<ShareScreen>(shared));
     }, LV_EVENT_CLICKED, nullptr);
 
     auto share_icon = lv_label_create(share_button);

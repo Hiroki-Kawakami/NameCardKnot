@@ -4,111 +4,119 @@
  */
 
 #include "ShareScreen.hpp"
-#include <cstdlib>
-#include "NameCardKnot.hpp"
-#include "MyCardStore.hpp"
+#include "screen_manager.hpp"
+#include "lv_image_adapter.hpp"
 
-void ShareScreen::build() {
-    createNavigation("Dokan Send");
-    lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-    status_label_ = lv_label_create(contents_);
-    lv_obj_set_style_text_font(status_label_, &lv_font_montserrat_48, 0);
-    lv_label_set_text(status_label_, "----");
+#define SHARE_IMAGE_W 203
+#define SHARE_IMAGE_H 360
 
-    value_label_ = lv_label_create(contents_);
-    lv_obj_set_style_text_font(value_label_, &lv_font_montserrat_24, 0);
-    lv_label_set_text(value_label_, "");
+ShareScreen::ShareScreen(std::shared_ptr<SharedCardData> data) : data_(std::move(data)) {}
+
+ShareScreen::~ShareScreen() {
+    stopWorker();
+    if (poll_timer_) lv_timer_delete(poll_timer_);
 }
 
-void ShareScreen::tick() {
-    lv_label_set_text(status_label_, status_);
-    lv_label_set_text_fmt(value_label_, "%u / %u", (unsigned)sent_, (unsigned)len_);
+void ShareScreen::build() {
+    createNavigation("Share");
+    lv_obj_set_style_border_width(navigation_, 0, 0);
+    lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    share_images_ = lv_container_create(contents_, LV_FLEX_FLOW_ROW);
+    lv_obj_set_height(share_images_, SHARE_IMAGE_H);
+    lv_obj_set_style_pad_column(share_images_, 20, 0);
+
+    if (!data_ || !data_->valid()) return;
+    int n = data_->share_image_count();
+    if (n <= 0) return;
+
+    slots_.reserve(n);
+    for (int i = 0; i < n; i++) slots_.push_back(std::make_unique<Slot>());
+
+    startWorker();
+    poll_timer_ = lv_timer_create([](lv_timer_t *t) {
+        static_cast<ShareScreen *>(lv_timer_get_user_data(t))->poll();
+    }, 100, this);
 }
 
 void ShareScreen::onAppear() {
-    finished_ = false;
-    off_ = 0;
-    stream_ = nullptr;
-    sent_ = 0;
-    status_ = "Connecting";
-    lv_label_set_text(status_label_, status_);
-    lv_label_set_text(value_label_, "");
-
-    if (!mycard::Store::mount() || !mycard::Store::available()) {
-        lv_label_set_text(status_label_, "No card");
-        return;
-    }
-    len_ = mycard::Store::blob_len(mycard::BLOB_PDF);
-    buf_ = (uint8_t *)malloc(len_);
-    if (!buf_ || !mycard::Store::read_blob(mycard::BLOB_PDF, buf_, len_)) {
-        lv_label_set_text(status_label_, "Read failed");
-        free(buf_);
-        buf_ = nullptr;
-        return;
-    }
-
-    dokan_config_t cfg = {};
-    cfg.connect_timeout_ms = 30000;
-    esp_err_t err = dokan_open(DOKAN_TEST_DESCRIPTOR, DOKAN_ROLE_HOST, DOKAN_APP_ID, &cfg,
-                               &ShareScreen::onEvent, this, &session_);
-    if (err != ESP_OK) {
-        lv_label_set_text_fmt(status_label_, "open: %d", err);
-        free(buf_);
-        buf_ = nullptr;
-        return;
-    }
-    ui_timer_ = lv_timer_create([](lv_timer_t *t) {
-        static_cast<ShareScreen *>(lv_timer_get_user_data(t))->tick();
-    }, 500, this);
-}
-
-void ShareScreen::pumpSend() {
-    if (finished_ || !stream_) return;
-    while (off_ < len_) {
-        size_t w = 0;
-        dokan_stream_write(stream_, buf_ + off_, len_ - off_, &w);
-        if (w == 0) break;  // send window full; wait for STREAM_WRITABLE
-        off_ += (uint32_t)w;
-    }
-    sent_ = off_;
-    if (off_ >= len_) {
-        dokan_stream_finish(stream_);
-        finished_ = true;
-        status_ = "Sent";
-    }
-}
-
-void ShareScreen::onEvent(const dokan_event_t *ev, void *arg) {
-    auto self = static_cast<ShareScreen *>(arg);
-    switch (ev->type) {
-    case DOKAN_EVENT_CONNECTED: {
-        self->status_ = "Sending";
-        dokan_stream_opts_t opts = { 0, self->len_ };
-        if (dokan_stream_open(ev->session, &opts, &self->stream_) == ESP_OK) self->pumpSend();
-        break;
-    }
-    case DOKAN_EVENT_STREAM_WRITABLE:
-        self->pumpSend();
-        break;
-    case DOKAN_EVENT_ERROR:
-        self->status_ = "Error";
-        break;
-    default:
-        break;
-    }
 }
 
 void ShareScreen::onDisappear() {
-    if (ui_timer_) {
-        lv_timer_delete(ui_timer_);
-        ui_timer_ = nullptr;
+}
+
+void ShareScreen::back() {
+    stopWorker();
+    if (poll_timer_) { lv_timer_delete(poll_timer_); poll_timer_ = nullptr; }
+    screen_manager.pop();
+}
+
+void ShareScreen::worker() {
+    imgproc::Options o;
+    o.target_w = SHARE_IMAGE_W;
+    o.target_h = SHARE_IMAGE_H;
+    o.fit = imgproc::Fit::Contain;
+    o.levels = 16;
+
+    for (size_t i = 0; i < slots_.size(); i++) {
+        if (stop_.load()) break;  // interrupted at an image boundary
+        imgproc::Image img;
+        imgproc::Status st = data_->decode_share_image((int)i, o, img);
+        if (stop_.load()) break;  // interrupted mid-decode: drop the result
+        Slot *s = slots_[i].get();
+        if (st == imgproc::Status::Ok) {
+            s->img = std::move(img);
+            imgproc_fill_lv_dsc(s->img, s->dsc);
+            s->state.store(1, std::memory_order_release);
+        } else {
+            s->state.store(2, std::memory_order_release);
+        }
     }
-    if (session_) {
-        dokan_close(session_);  // joins the I/O task: no events after this
-        session_ = nullptr;
+    worker_running_.store(false);
+}
+
+void ShareScreen::workerTask(void *arg) {
+    static_cast<ShareScreen *>(arg)->worker();
+    vTaskDelete(nullptr);
+}
+
+void ShareScreen::startWorker() {
+    worker_running_.store(true);
+    worker_started_ = true;
+#ifdef ESP_PLATFORM
+    BaseType_t core = 1 - xPortGetCoreID();
+    UBaseType_t prio = uxTaskPriorityGet(nullptr);
+#else
+    BaseType_t core = tskNO_AFFINITY;
+    UBaseType_t prio = 1;
+#endif
+    if (xTaskCreatePinnedToCore(workerTask, "shareimg", 16384, this, prio, nullptr, core) != pdPASS)
+        worker();  // synchronous fallback (clears worker_running_)
+}
+
+void ShareScreen::stopWorker() {
+    if (!worker_started_) return;
+    stop_.store(true);
+    while (worker_running_.load()) vTaskDelay(pdMS_TO_TICKS(2));
+    worker_started_ = false;
+}
+
+void ShareScreen::poll() {
+    size_t resolved = 0;
+    for (auto &slot : slots_) {
+        int st = slot->state.load(std::memory_order_acquire);
+        if (st == 0) continue;
+        resolved++;
+        if (st == 1 && !slot->shown) {
+            slot->shown = true;
+            lv_image_set_src(lv_image_create(share_images_), &slot->dsc);
+        }
     }
-    free(buf_);
-    buf_ = nullptr;
-    stream_ = nullptr;
+    if (resolved >= slots_.size()) {
+        lv_timer_delete(poll_timer_);
+        poll_timer_ = nullptr;
+    }
 }
