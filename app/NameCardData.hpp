@@ -7,6 +7,7 @@
 #include "FileLoader.hpp"
 #include "L8View.hpp"
 #include "MyCardStore.hpp"
+#include "SharedCardData.hpp"
 #include "image_processor.hpp"
 #include "namecard_pdf.hpp"
 #include <memory>
@@ -53,6 +54,9 @@ public:
     bool is_card() const { return kind_ == Kind::Card; }
     const std::string &name() const { return card_.name; }
     const std::string &url() const { return card_.url; }
+
+    // nullptr unless this is an SD-loaded card (a cached My Card has no file path).
+    std::shared_ptr<SharedCardData> share() const;
 
     // The embedded rare-kanji glyph supplement, or nullptr when the card has
     // none (the common case). References glyph_blob_, so it lives as long as this.

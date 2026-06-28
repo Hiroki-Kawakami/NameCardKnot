@@ -124,6 +124,11 @@ imgproc::Status NameCardData::status() const {
     return status_;
 }
 
+std::shared_ptr<SharedCardData> NameCardData::share() const {
+    if (kind_ != Kind::Card || path_.empty()) return nullptr;
+    return SharedCardData::open(path_);
+}
+
 std::string NameCardData::label() const {
     if (kind_ == Kind::Card && !card_.name.empty()) return card_.name;
     const auto slash = path_.find_last_of('/');
