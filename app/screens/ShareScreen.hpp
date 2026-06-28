@@ -6,6 +6,7 @@
 #pragma once
 #include "widgets.hpp"
 #include "SharedCardData.hpp"
+#include "NameFont.hpp"
 #include "image_processor.hpp"
 #include <atomic>
 #include <memory>
@@ -27,7 +28,8 @@ private:
     struct Slot {
         imgproc::Image   img;
         lv_image_dsc_t   dsc{};
-        std::atomic<int> state{0};  // 0 pending, 1 ready, 2 failed
+        lv_obj_t        *obj = nullptr;  // placeholder created up front; src set when ready
+        std::atomic<int> state{0};       // 0 pending, 1 ready, 2 failed
         bool             shown = false;
     };
 
@@ -38,6 +40,7 @@ private:
     void poll();        // LVGL-context: add an lv_image for each newly ready slot
 
     std::shared_ptr<SharedCardData> data_;
+    std::unique_ptr<NameFont> name_font_;
     lv_obj_t *share_images_ = nullptr;
     lv_timer_t *poll_timer_ = nullptr;
 
@@ -45,4 +48,6 @@ private:
     std::atomic<bool> stop_{false};
     std::atomic<bool> worker_running_{false};
     bool worker_started_ = false;
+
+    bool allow_return_data_ = false;
 };

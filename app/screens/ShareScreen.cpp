@@ -6,6 +6,7 @@
 #include "ShareScreen.hpp"
 #include "screen_manager.hpp"
 #include "lv_image_adapter.hpp"
+#include "NameCardKnot.hpp"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -24,22 +25,154 @@ void ShareScreen::build() {
     createNavigation("Share");
     lv_obj_set_style_border_width(navigation_, 0, 0);
     lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_hor(contents_, 20, 0);
+    lv_obj_set_style_pad_row(contents_, 20, 0);
+    lv_obj_set_style_pad_bottom(contents_, 20, 0);
+    if (!data_ || !data_->valid()) return;
+
+    if (data_ && data_->valid() && !data_->name().empty()) {
+        name_font_ = std::make_unique<NameFont>(data_->name_glyphs());
+        lv_obj_t *name = lv_label_create(contents_);
+        lv_label_set_text(name, data_->name().c_str());
+        lv_obj_set_style_text_font(name, name_font_->font(), 0);
+        lv_obj_set_style_pad_bottom(name, 16, 0);
+    }
 
     share_images_ = lv_container_create(contents_, LV_FLEX_FLOW_ROW);
     lv_obj_set_height(share_images_, SHARE_IMAGE_H);
     lv_obj_set_style_pad_column(share_images_, 20, 0);
 
-    if (!data_ || !data_->valid()) return;
     int n = data_->share_image_count();
-    if (n <= 0) return;
+    if (n > 0) {
+        slots_.reserve(n);
+        for (int i = 0; i < n; i++) {
+            auto slot = std::make_unique<Slot>();
+            slot->obj = lv_image_create(share_images_);
+            lv_obj_set_size(slot->obj, SHARE_IMAGE_W, SHARE_IMAGE_H);
+            slots_.push_back(std::move(slot));
+        }
 
-    slots_.reserve(n);
-    for (int i = 0; i < n; i++) slots_.push_back(std::make_unique<Slot>());
+        startWorker();
+        poll_timer_ = lv_timer_create([](lv_timer_t *t) {
+            static_cast<ShareScreen *>(lv_timer_get_user_data(t))->poll();
+        }, 100, this);
+    }
 
-    startWorker();
-    poll_timer_ = lv_timer_create([](lv_timer_t *t) {
-        static_cast<ShareScreen *>(lv_timer_get_user_data(t))->poll();
-    }, 100, this);
+    if (!data_->url().empty() || !data_->message().empty()) {
+        auto row = lv_container_create(contents_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(row, 10, 0);
+
+        auto button = [row](const char *icon, const char *title, std::function<void(lv_event_t*)> clicked) {
+            auto button = lv_button_create(row);
+            lv_obj_remove_style_all(button);
+            lv_obj_set_height(button, 64);
+            lv_obj_set_flex_grow(button, 1);
+            lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(button, 10, 0);
+            lv_obj_set_style_border_width(button, 2, 0);
+            lv_obj_set_style_radius(button, 8, 0);
+            lv_obj_set_style_border_color(button, lv_color_white(), 0);
+            lv_obj_set_style_border_color(button, lv_color_black(), LV_STATE_PRESSED);
+            lv_obj_add_event_fn(button, LV_EVENT_CLICKED, clicked);
+
+            auto icon_label = lv_label_create(button);
+            lv_label_set_text(icon_label, icon);
+            lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
+            auto label = lv_label_create(button);
+            lv_label_set_text(label, title);
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+        };
+        if (!data_->url().empty()) {
+            button(LUCIDE_LINK, "URL", [this](lv_event_t*) {
+                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+                auto card = lv_modal_open(root_);
+                lv_modal_title_create(card, "URL");
+                lv_modal_message_create(card, data_->url().c_str());
+
+                lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
+                    lv_async_call([card](){
+                        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+                        lv_modal_close(card);
+                    });
+                });
+            });
+        }
+        if (!data_->message().empty()) {
+            if (lv_obj_get_child_count(row) > 0) lv_ver_separator_create(row);
+            button(LUCIDE_MESSAGE_CIRCLE, "Message", [this](lv_event_t*) {
+                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+                auto card = lv_modal_open(root_);
+                lv_modal_title_create(card, "Message");
+                lv_modal_message_create(card, data_->message().c_str());
+
+                lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
+                    lv_async_call([card](){
+                        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+                        lv_modal_close(card);
+                    });
+                });
+            });
+        }
+    }
+
+    {
+        auto container = lv_container_create(contents_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_border_width(container, 1, 0);
+        lv_obj_set_style_border_color(container, lv_color_black(), 0);
+        lv_obj_set_style_border_side(container, (lv_border_side_t)(LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
+        lv_obj_set_flex_grow(container, 1);
+        lv_obj_set_width(container, LV_PCT(100));
+        lv_obj_set_style_pad_row(container, 20, 0);
+
+        auto icon = lv_label_create(container);
+        lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
+        lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
+
+        auto msg = lv_label_create(container);
+        lv_label_set_text(msg, "Hold this screen against the other device's screen to start sharing.");
+        lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(msg, LV_PCT(100));
+        lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
+    }
+
+    {
+        auto button = lv_button_create(contents_);
+        lv_obj_set_size(button, LV_PCT(100), 64);
+
+        auto container = lv_container_create(button, LV_FLEX_FLOW_ROW);
+        lv_obj_center(container);
+        lv_obj_set_size(container, 500, 64);
+        lv_obj_set_flex_flow(container, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(container, 20, 0);
+        lv_obj_set_style_pad_hor(container, 20, 0);
+        lv_obj_remove_flag(container, LV_OBJ_FLAG_CLICKABLE);
+
+        auto createCheckbox = [this, container](lv_event_t *e) {
+            if (e) allow_return_data_ = !allow_return_data_;
+
+            lv_obj_clean(container);
+            auto checkbox = lv_label_create(container);
+            lv_obj_set_style_text_font(checkbox, &lv_font_montserrat_24, 0);
+            lv_obj_set_size(checkbox, 24, 24);
+            lv_obj_set_style_border_width(checkbox, 1, 0);
+            if (allow_return_data_) {
+                lv_label_set_text(checkbox, LV_SYMBOL_OK);
+                lv_obj_set_style_border_color(checkbox, lv_color_white(), 0);
+            } else {
+                lv_label_set_text(checkbox, "");
+                lv_obj_set_style_border_color(checkbox, lv_color_black(), 0);
+            }
+
+            auto label = lv_label_create(container);
+            lv_label_set_text(label, "Also receive their card in return");
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        };
+        createCheckbox(nullptr);
+        lv_obj_add_event_fn(button, LV_EVENT_CLICKED, createCheckbox);
+    }
 }
 
 void ShareScreen::onAppear() {
@@ -112,7 +245,8 @@ void ShareScreen::poll() {
         resolved++;
         if (st == 1 && !slot->shown) {
             slot->shown = true;
-            lv_image_set_src(lv_image_create(share_images_), &slot->dsc);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+            lv_image_set_src(slot->obj, &slot->dsc);
         }
     }
     if (resolved >= slots_.size()) {
