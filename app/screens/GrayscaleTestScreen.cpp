@@ -11,7 +11,7 @@
 
 void GrayscaleTestScreen::build() {
     bsp_display_refresh({}, BSP_EPD_MODE_CLEAR_FULL);
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(500));
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
 
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);

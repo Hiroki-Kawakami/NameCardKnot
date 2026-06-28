@@ -296,11 +296,7 @@ void FileBrowserScreen::poll() {
         if (cancelling_) return;  // waiting for the worker to stop
         // The decode runs on its own core, so a bar refresh only costs PSRAM
         // contention (not CPU preemption); ~1s between refreshes is cheap enough.
-#if CONFIG_IDF_TARGET_ESP32S3
-        static constexpr uint32_t kBarRefreshMs = 2000;
-#else
         static constexpr uint32_t kBarRefreshMs = 1000;
-#endif
         int pct = loader_->progress_pct();
         if (pct != last_pct_ && lv_tick_elaps(last_tick_) >= kBarRefreshMs) {
             lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
