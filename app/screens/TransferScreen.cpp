@@ -36,6 +36,27 @@ const lv_font_t *TransferScreen::nameFont() {
     return name_font_->font();
 }
 
+void TransferScreen::createHotKnotStartMessage(lv_obj_t *parent) {
+    hotknot_start_msg_ = lv_container_create(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_border_width(hotknot_start_msg_, 1, 0);
+    lv_obj_set_style_border_color(hotknot_start_msg_, lv_color_black(), 0);
+    lv_obj_set_style_border_side(hotknot_start_msg_, (lv_border_side_t)(LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
+    lv_obj_set_flex_grow(hotknot_start_msg_, 1);
+    lv_obj_set_width(hotknot_start_msg_, LV_PCT(100));
+    lv_obj_set_style_pad_row(hotknot_start_msg_, 20, 0);
+
+    auto icon = lv_label_create(hotknot_start_msg_);
+    lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
+    lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
+
+    auto msg = lv_label_create(hotknot_start_msg_);
+    lv_label_set_text(msg, "Hold this screen against the other device's screen to start sharing.");
+    lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(msg, LV_PCT(100));
+    lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
+}
+
 lv_obj_t *TransferScreen::createShareImages(lv_obj_t *parent) {
     share_images_ = lv_container_create(parent, LV_FLEX_FLOW_ROW);
     lv_obj_set_height(share_images_, kShareImageH);
@@ -210,6 +231,7 @@ void TransferScreen::pollHotKnot() {
             case HkState::Paired:
                 if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
                 else { hk_seen_ = HkState::Ready; onHotKnotReady(); }
+                if (hotknot_start_msg_) lv_obj_set_style_opa(hotknot_start_msg_, 0, 0);
                 break;
             case HkState::Ready:
                 if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }

@@ -34,6 +34,9 @@ protected:
     // Lazily built name font (Montserrat -> NotoSansJP -> PDF glyph supplement).
     const lv_font_t *nameFont();
 
+    lv_obj_t *hotknot_start_msg_;
+    void createHotKnotStartMessage(lv_obj_t *parent);
+
     // HotKnot descriptor exchange. Approach for `role`; startHotKnot returns false
     // where HotKnot is unavailable (e.g. the simulator).
     bool startHotKnot(bsp_hotknot_role_t role);

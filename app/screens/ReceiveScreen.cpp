@@ -17,30 +17,8 @@ void ReceiveScreen::build() {
     lv_obj_set_style_pad_row(contents_, 20, 0);
     lv_obj_set_style_pad_bottom(contents_, 20, 0);
 
-    {
-        auto container = lv_container_create(contents_, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_border_width(container, 1, 0);
-        lv_obj_set_style_border_color(container, lv_color_black(), 0);
-        lv_obj_set_style_border_side(container, (lv_border_side_t)(LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
-        lv_obj_set_flex_grow(container, 1);
-        lv_obj_set_width(container, LV_PCT(100));
-        lv_obj_set_style_pad_row(container, 20, 0);
-
-        auto icon = lv_label_create(container);
-        lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
-        lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
-
-        auto msg = lv_label_create(container);
-        lv_label_set_text(msg, "Hold this screen against the other device's screen to start sharing.");
-        lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(msg, LV_PCT(100));
-        lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
-    }
-
-    if (data_) {
-        loadShareCardData();
-    }
+    createHotKnotStartMessage(contents_);
+    if (data_) loadShareCardData();
 
     startHotKnot(BSP_HOTKNOT_ROLE_SLAVE);
 }
