@@ -125,8 +125,8 @@ imgproc::Status NameCardData::status() const {
 }
 
 std::shared_ptr<SharedCardData> NameCardData::share() const {
-    if (kind_ != Kind::Card || path_.empty()) return nullptr;
-    return SharedCardData::open(path_);
+    if (kind_ != Kind::Card) return nullptr;
+    return path_.empty() ? SharedCardData::from_mycard(card_) : SharedCardData::open(path_);
 }
 
 std::string NameCardData::label() const {

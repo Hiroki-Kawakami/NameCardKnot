@@ -55,8 +55,7 @@ public:
     const std::string &name() const { return card_.name; }
     const std::string &url() const { return card_.url; }
 
-    // nullptr unless this is an SD-loaded card (a cached My Card has no file path).
-    std::shared_ptr<SharedCardData> share() const;
+    std::shared_ptr<SharedCardData> share() const;  // nullptr if this is not a card
 
     // The embedded rare-kanji glyph supplement, or nullptr when the card has
     // none (the common case). References glyph_blob_, so it lives as long as this.

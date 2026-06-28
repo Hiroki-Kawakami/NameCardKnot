@@ -181,6 +181,15 @@ bool Store::read_blob(BlobId id, void *buf, uint32_t len) {
     return st_read(b.offset, buf, len < b.length ? len : b.length);
 }
 
+uint32_t Store::read_blob_range(BlobId id, uint32_t offset, void *buf, uint32_t len) {
+    if (!s_hdr_valid || id >= BLOB_COUNT) return 0;
+    const Blob &b = s_hdr.blobs[id];
+    if (offset >= b.length) return 0;
+    uint32_t n = b.length - offset;
+    if (n > len) n = len;
+    return st_read(b.offset + offset, buf, n) ? n : 0;
+}
+
 MappedImage Store::map_image(BlobId id) {
     MappedImage m;
     if (!s_hdr_valid || id >= BLOB_COUNT) return m;

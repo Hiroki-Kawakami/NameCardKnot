@@ -102,6 +102,10 @@ public:
     // clamped to the blob length; returns false if unavailable or read failed.
     static bool read_blob(BlobId id, void *buf, uint32_t len);
 
+    // Copy a sub-range [offset, offset+len) of a blob; len clamped to what remains.
+    // Returns bytes read (0 if unavailable or offset past the blob).
+    static uint32_t read_blob_range(BlobId id, uint32_t offset, void *buf, uint32_t len);
+
     // Map one stored L8 image on demand. Empty MappedImage unless the card is
     // available and the blob is FMT_L8. Keep the handle alive while displaying.
     static MappedImage map_image(BlobId id);
