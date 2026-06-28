@@ -35,6 +35,7 @@ typedef struct {
     pthread_t task;
     bool task_started;
     volatile bool stop_requested;
+    volatile bool want_writable;
 } dokan_sim_t;
 
 static uint16_t port_from_seed(const uint8_t *p, size_t n) {
@@ -103,23 +104,30 @@ static void *sim_task(void *arg) {
         if (!s->stop_requested) h->on_error(h->ctx, ESP_ERR_TIMEOUT);
     } else {
         s->datafd = fd;
+        fcntl(fd, F_SETFL, O_NONBLOCK);          /* non-blocking send: write never blocks the engine */
+        int sndbuf = 8192;                       /* small, so the writable path is exercised under load */
+        setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof sndbuf);
         h->on_connected(h->ctx);
         uint8_t buf[4096];
         bool peer_gone = false;
         /* Exit only on stop or a deferred close, so a cross-thread stop() always
          * joins a task parked in select() (no self-exit-vs-stop race). */
         for (;;) {
-            fd_set rf;
+            fd_set rf, wf;
             FD_ZERO(&rf);
+            FD_ZERO(&wf);
             FD_SET(s->wake[0], &rf);
             int mx = s->wake[0];
             if (!peer_gone) { FD_SET(s->datafd, &rf); if (s->datafd > mx) mx = s->datafd; }
-            if (select(mx + 1, &rf, NULL, NULL, NULL) <= 0) continue;
+            if (s->want_writable) { FD_SET(s->datafd, &wf); if (s->datafd > mx) mx = s->datafd; }
+            if (select(mx + 1, &rf, &wf, NULL, NULL) <= 0) continue;
             if (FD_ISSET(s->wake[0], &rf)) drain_pipe(s->wake[0]);
             if (s->stop_requested) break;
+            if (FD_ISSET(s->datafd, &wf)) h->on_writable(h->ctx);   /* flush the outbound queue */
             if (!peer_gone && FD_ISSET(s->datafd, &rf)) {
                 ssize_t n = recv(s->datafd, buf, sizeof buf, 0);
-                if (n <= 0) { h->on_error(h->ctx, ESP_FAIL); peer_gone = true; }
+                if (n == 0) { h->on_error(h->ctx, ESP_FAIL); peer_gone = true; }
+                else if (n < 0) { if (errno != EAGAIN && errno != EWOULDBLOCK) { h->on_error(h->ctx, ESP_FAIL); peer_gone = true; } }
                 else h->on_bytes(h->ctx, buf, (size_t)n);
             }
             if (h->poll_close(h->ctx)) { deferred = true; break; }
@@ -135,8 +143,10 @@ static void *sim_task(void *arg) {
 }
 
 static esp_err_t sim_start(dokan_transport_t *self, dokan_role_t role,
+                           const char app_id[DOKAN_APP_ID_LEN],
                            const uint8_t *params, size_t plen,
                            const dokan_config_t *cfg, const dokan_transport_host_t *host) {
+    (void)app_id;  /* sim rendezvous needs only the seed */
     dokan_sim_t *s = (dokan_sim_t *)self;
     s->role = role;
     s->host = *host;
@@ -172,9 +182,14 @@ static size_t sim_write(dokan_transport_t *self, const uint8_t *data, size_t len
     size_t off = 0;
     while (off < len) {
         ssize_t n = send(s->datafd, data + off, len - off, 0);
-        if (n < 0) { if (errno == EINTR) continue; break; }
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;  /* EAGAIN/EWOULDBLOCK or error: leave the rest for on_writable */
+        }
         off += (size_t)n;
     }
+    s->want_writable = (off < len);
+    if (s->want_writable && s->wake[1] >= 0) { uint8_t b = 1; ssize_t r = write(s->wake[1], &b, 1); (void)r; }
     return off;
 }
 

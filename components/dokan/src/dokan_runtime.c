@@ -40,7 +40,7 @@ esp_err_t dokan_open(const char *descriptor, dokan_role_t role,
 
     dokan_transport_host_t host;
     dokan_session_make_host(s, &host);
-    err = t->start(t, role, params, plen, cfg, &host);
+    err = t->start(t, role, app_id, params, plen, cfg, &host);
     if (err != ESP_OK) { dokan_session_destroy(s); return err; }
 
     *out = s;

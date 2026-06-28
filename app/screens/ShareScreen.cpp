@@ -5,53 +5,110 @@
 
 #include "ShareScreen.hpp"
 #include <cstdlib>
-#include <string>
-#include "bsp.h"
+#include "NameCardKnot.hpp"
+#include "MyCardStore.hpp"
 
 void ShareScreen::build() {
-    createNavigation("HotKnot Send");
+    createNavigation("Dokan Send");
     lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    value_label_ = lv_label_create(contents_);
-    lv_obj_set_style_text_font(value_label_, &lv_font_montserrat_48, 0);
-    lv_label_set_text(value_label_, "----");
-
     status_label_ = lv_label_create(contents_);
-    lv_obj_set_style_text_font(status_label_, &lv_font_montserrat_24, 0);
-    lv_label_set_text(status_label_, "");
+    lv_obj_set_style_text_font(status_label_, &lv_font_montserrat_48, 0);
+    lv_label_set_text(status_label_, "----");
+
+    value_label_ = lv_label_create(contents_);
+    lv_obj_set_style_text_font(value_label_, &lv_font_montserrat_24, 0);
+    lv_label_set_text(value_label_, "");
+}
+
+void ShareScreen::tick() {
+    lv_label_set_text(status_label_, status_);
+    lv_label_set_text_fmt(value_label_, "%u / %u", (unsigned)sent_, (unsigned)len_);
 }
 
 void ShareScreen::onAppear() {
-    sent_ = false;
-    value_ = rand() % 10000;
-    lv_label_set_text_fmt(value_label_, "%d", value_);
-    lv_label_set_text(status_label_, "Approaching...");
+    finished_ = false;
+    off_ = 0;
+    stream_ = nullptr;
+    sent_ = 0;
+    status_ = "Connecting";
+    lv_label_set_text(status_label_, status_);
+    lv_label_set_text(value_label_, "");
 
-    bsp_hotknot_begin(BSP_HOTKNOT_ROLE_MASTER, [](const bsp_hotknot_event_t *ev, void *arg) {
-        auto self = (ShareScreen*)arg;
-        switch (ev->type) {
-        case BSP_HOTKNOT_EVENT_PAIRED:
-            lv_async_call([self]{ lv_label_set_text(self->status_label_, "Paired..."); });
-            break;
-        case BSP_HOTKNOT_EVENT_READY:
-            lv_async_call([self]{
-                if (self->sent_) return;
-                self->sent_ = true;
-                auto msg = std::to_string(self->value_);
-                esp_err_t err = bsp_hotknot_send(msg.c_str(), msg.size(), 3000);
-                lv_label_set_text(self->status_label_, err == ESP_OK ? "Sent" : "Send failed");
-                bsp_hotknot_end();
-            });
-            break;
-        case BSP_HOTKNOT_EVENT_ERROR:
-            lv_async_call([self]{ lv_label_set_text(self->status_label_, "Error"); });
-            break;
-        default:
-            break;
-        }
-    }, this);
+    if (!mycard::Store::mount() || !mycard::Store::available()) {
+        lv_label_set_text(status_label_, "No card");
+        return;
+    }
+    len_ = mycard::Store::blob_len(mycard::BLOB_PDF);
+    buf_ = (uint8_t *)malloc(len_);
+    if (!buf_ || !mycard::Store::read_blob(mycard::BLOB_PDF, buf_, len_)) {
+        lv_label_set_text(status_label_, "Read failed");
+        free(buf_);
+        buf_ = nullptr;
+        return;
+    }
+
+    dokan_config_t cfg = {};
+    cfg.connect_timeout_ms = 30000;
+    esp_err_t err = dokan_open(DOKAN_TEST_DESCRIPTOR, DOKAN_ROLE_HOST, DOKAN_APP_ID, &cfg,
+                               &ShareScreen::onEvent, this, &session_);
+    if (err != ESP_OK) {
+        lv_label_set_text_fmt(status_label_, "open: %d", err);
+        free(buf_);
+        buf_ = nullptr;
+        return;
+    }
+    ui_timer_ = lv_timer_create([](lv_timer_t *t) {
+        static_cast<ShareScreen *>(lv_timer_get_user_data(t))->tick();
+    }, 500, this);
+}
+
+void ShareScreen::pumpSend() {
+    if (finished_ || !stream_) return;
+    while (off_ < len_) {
+        size_t w = 0;
+        dokan_stream_write(stream_, buf_ + off_, len_ - off_, &w);
+        if (w == 0) break;  // send window full; wait for STREAM_WRITABLE
+        off_ += (uint32_t)w;
+    }
+    sent_ = off_;
+    if (off_ >= len_) {
+        dokan_stream_finish(stream_);
+        finished_ = true;
+        status_ = "Sent";
+    }
+}
+
+void ShareScreen::onEvent(const dokan_event_t *ev, void *arg) {
+    auto self = static_cast<ShareScreen *>(arg);
+    switch (ev->type) {
+    case DOKAN_EVENT_CONNECTED: {
+        self->status_ = "Sending";
+        dokan_stream_opts_t opts = { 0, self->len_ };
+        if (dokan_stream_open(ev->session, &opts, &self->stream_) == ESP_OK) self->pumpSend();
+        break;
+    }
+    case DOKAN_EVENT_STREAM_WRITABLE:
+        self->pumpSend();
+        break;
+    case DOKAN_EVENT_ERROR:
+        self->status_ = "Error";
+        break;
+    default:
+        break;
+    }
 }
 
 void ShareScreen::onDisappear() {
-    bsp_hotknot_end();
+    if (ui_timer_) {
+        lv_timer_delete(ui_timer_);
+        ui_timer_ = nullptr;
+    }
+    if (session_) {
+        dokan_close(session_);  // joins the I/O task: no events after this
+        session_ = nullptr;
+    }
+    free(buf_);
+    buf_ = nullptr;
+    stream_ = nullptr;
 }

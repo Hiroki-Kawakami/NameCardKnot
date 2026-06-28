@@ -26,6 +26,7 @@ typedef struct dokan_transport dokan_transport_t;
 struct dokan_transport {
     dokan_transport_id_t id;
     esp_err_t (*start)(dokan_transport_t *self, dokan_role_t role,
+                       const char app_id[DOKAN_APP_ID_LEN],
                        const uint8_t *params, size_t plen,
                        const dokan_config_t *cfg, const dokan_transport_host_t *host);
     size_t (*write)(dokan_transport_t *self, const uint8_t *data, size_t len);

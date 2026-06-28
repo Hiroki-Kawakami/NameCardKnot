@@ -13,4 +13,5 @@ idf_component_register(
     SRCS ${DOKAN_SRCS}
     INCLUDE_DIRS "inc"
     PRIV_INCLUDE_DIRS "src"
-    PRIV_REQUIRES esp_hw_support freertos)  # esp_fill_random (seed RNG) + session lock
+    # esp_fill_random (seed RNG), session lock, WiFi transport (dokan_wifi.c)
+    PRIV_REQUIRES esp_hw_support freertos esp_wifi esp_netif nvs_flash)
