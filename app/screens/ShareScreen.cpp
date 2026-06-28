@@ -33,7 +33,10 @@ void ShareScreen::build() {
     if (data_ && data_->valid() && !data_->name().empty()) {
         name_font_ = std::make_unique<NameFont>(data_->name_glyphs());
         lv_obj_t *name = lv_label_create(contents_);
+        lv_obj_set_width(name, LV_PCT(100));
         lv_label_set_text(name, data_->name().c_str());
+        lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(name, name_font_->font(), 0);
         lv_obj_set_style_pad_bottom(name, 16, 0);
     }

@@ -5,39 +5,51 @@
 
 #pragma once
 #include "widgets.hpp"
-#include "dokan.h"
+#include "SharedCardData.hpp"
+#include "NameFont.hpp"
 #include "image_processor.hpp"
 #include <atomic>
+#include <memory>
+#include <vector>
 
 class ReceiveScreen : public NavigationScreen {
 public:
+    explicit ReceiveScreen(std::shared_ptr<SharedCardData> data);
+    ~ReceiveScreen() override;
     void build() override;
     void onAppear() override;
     void onDisappear() override;
+    void back() override;
 
 private:
-    static void onEvent(const dokan_event_t *ev, void *arg);  // dokan I/O task
-    void tick();       // LVGL thread (lv_timer)
-    void showImage();  // LVGL thread: parse PDF + decode share JPEG + display
-    void freePdf();
+    // One decoded share image. The worker fills img/dsc then publishes state with
+    // release; the poll timer reads state with acquire before touching img/dsc.
+    // Held by unique_ptr so dsc keeps a stable address for lv_image_set_src.
+    struct Slot {
+        imgproc::Image   img;
+        lv_image_dsc_t   dsc{};
+        lv_obj_t        *obj = nullptr;  // placeholder created up front; src set when ready
+        std::atomic<int> state{0};       // 0 pending, 1 ready, 2 failed
+        bool             shown = false;
+    };
 
-    lv_obj_t   *value_label_;
-    lv_obj_t   *status_label_;
-    lv_obj_t   *image_obj_ = nullptr;
-    lv_timer_t *ui_timer_ = nullptr;
-    dokan_session_t *session_ = nullptr;
+    void startWorker();
+    void stopWorker();  // request stop, then wait for the worker to exit
+    void worker();      // worker-task body: decode each share image in order
+    static void workerTask(void *arg);
+    void poll();        // LVGL-context: fill each newly ready slot's lv_image
 
-    uint8_t  *pdf_ = nullptr;   // received .mnc.pdf (written by the I/O task)
-    uint32_t  pdf_cap_ = 0;
+    std::shared_ptr<SharedCardData> data_;
+    std::unique_ptr<NameFont> name_font_;
+    lv_obj_t *share_images_ = nullptr;
+    lv_timer_t *poll_timer_ = nullptr;
 
-    // written by the I/O task, read by the lv_timer
-    const char *volatile status_ = "";
-    volatile uint32_t received_ = 0;
-    volatile uint32_t expected_ = 0;
-    std::atomic<bool> recv_done_{false};  // release/acquire for the pdf_ bytes
-    bool displayed_ = false;
+    std::vector<std::unique_ptr<Slot>> slots_;
+    std::atomic<bool> stop_{false};
+    std::atomic<bool> worker_running_{false};
+    bool worker_started_ = false;
 
-    // decoded share image, kept alive while the lv_image references it
-    imgproc::Image image_;
-    lv_image_dsc_t dsc_{};
+    bool return_my_data_ = false;
+
+    void loadShareCardData();
 };
