@@ -2,12 +2,16 @@
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 Hiroki Kawakami
  *
- * Data-plane engine implementation: frame codec, stream table, per-stream
- * window flow control, pause/resume, GOAWAY. See dokan_session.h.
+ * Data-plane engine: frame codec, stream table, per-stream window flow control,
+ * pause/resume, GOAWAY. A single recursive lock serializes the engine across the
+ * transport's I/O task and app threads; events dispatch inline (the callback may
+ * re-enter the API). See dokan_session.h.
  */
 
 #include "dokan.h"
 #include "dokan_session.h"
+#include "dokan_transport.h"
+#include "dokan_os.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -56,13 +60,19 @@ struct dokan_session {
     int      stream_count;
     dokan_stream_t *streams;
 
-    bool closed, error, goaway_received;
+    bool error, goaway_received;
 
     uint8_t in_buf[5 + DOKAN_MAX_FRAME_PAYLOAD];
     size_t  in_len;
 
     uint8_t *out_buf;
     size_t   out_cap, out_head, out_tail;
+
+    /* runtime (NULL/unused in the pure engine tests) */
+    dokan_mutex_t lock;
+    dokan_transport_t *transport;
+    dokan_task_t task;
+    bool task_bound, closing, deferred_close, goaway_sent;
 };
 
 /* ---- byte helpers (big-endian) ------------------------------------------- */
@@ -273,11 +283,6 @@ static void handle_window(dokan_session_t *s, uint16_t sid, const uint8_t *paylo
         emit(s, DOKAN_EVENT_STREAM_WRITABLE, st, NULL, 0, NULL, ESP_OK);
 }
 
-static void handle_goaway(dokan_session_t *s) {
-    s->goaway_received = true;
-    emit(s, DOKAN_EVENT_DISCONNECTED, NULL, NULL, 0, NULL, ESP_OK);
-}
-
 static void process_frame(dokan_session_t *s, uint8_t type, uint16_t sid,
                           const uint8_t *payload, uint16_t plen) {
     switch (type) {
@@ -286,33 +291,14 @@ static void process_frame(dokan_session_t *s, uint8_t type, uint16_t sid,
     case FRAME_EOF:    handle_eof(s, sid, plen);             break;
     case FRAME_RESET:  handle_reset(s, sid, payload, plen);  break;
     case FRAME_WINDOW: handle_window(s, sid, payload, plen); break;
-    case FRAME_GOAWAY: handle_goaway(s);                     break;
+    case FRAME_GOAWAY: s->goaway_received = true;
+                       emit(s, DOKAN_EVENT_DISCONNECTED, NULL, NULL, 0, NULL, ESP_OK); break;
     default:           protocol_error(s, ESP_ERR_NOT_SUPPORTED);
     }
 }
 
-/* ---- public / internal API ---------------------------------------------- */
-
-esp_err_t dokan_session_create_raw(dokan_role_t role, const dokan_config_t *cfg,
-                                   dokan_transport_write_fn write_fn, void *write_ctx,
-                                   dokan_event_cb_t event_cb, void *event_arg,
-                                   dokan_session_t **out) {
-    if (!write_fn || !out) return ESP_ERR_INVALID_ARG;
-    dokan_session_t *s = calloc(1, sizeof *s);
-    if (!s) return ESP_ERR_NO_MEM;
-    s->role = role;
-    s->window = (cfg && cfg->stream_window) ? cfg->stream_window : DOKAN_DEFAULT_WINDOW;
-    s->write_fn = write_fn;
-    s->write_ctx = write_ctx;
-    s->event_cb = event_cb;
-    s->event_arg = event_arg;
-    s->next_tx_id = (role == DOKAN_ROLE_HOST) ? 2 : 1;
-    *out = s;
-    return ESP_OK;
-}
-
 void dokan_session_feed(dokan_session_t *s, const uint8_t *data, size_t len) {
-    while (len > 0 && !s->error) {
+    while (len > 0 && !s->error && !s->closing) {
         size_t space = sizeof s->in_buf - s->in_len;
         size_t copy = len < space ? len : space;
         memcpy(s->in_buf + s->in_len, data, copy);
@@ -329,7 +315,7 @@ void dokan_session_feed(dokan_session_t *s, const uint8_t *data, size_t len) {
             if (s->in_len - off < (size_t)5 + plen) break;
             process_frame(s, type, sid, s->in_buf + off + 5, plen);
             off += (size_t)5 + plen;
-            if (s->error) break;
+            if (s->error || s->closing) break;
         }
         if (off > 0) {
             memmove(s->in_buf, s->in_buf + off, s->in_len - off);
@@ -338,34 +324,13 @@ void dokan_session_feed(dokan_session_t *s, const uint8_t *data, size_t len) {
     }
 }
 
-void dokan_session_on_writable(dokan_session_t *s) {
-    out_flush(s);
-}
+void dokan_session_on_writable(dokan_session_t *s) { out_flush(s); }
 
-esp_err_t dokan_close(dokan_session_t *s) {
-    if (!s) return ESP_ERR_INVALID_ARG;
-    if (!s->closed && !s->error) {
-        uint8_t p[4];
-        wr32(p, (uint32_t)ESP_OK);
-        enqueue(s, FRAME_GOAWAY, 0, p, 4);
-        s->closed = true;
-    }
-    dokan_stream_t *st = s->streams;
-    while (st) {
-        dokan_stream_t *n = st->next;
-        free(st->rx_buf);
-        free(st);
-        st = n;
-    }
-    free(s->out_buf);
-    free(s);
-    return ESP_OK;
-}
+/* ---- stream operations (engine; caller holds the lock) ------------------- */
 
-esp_err_t dokan_stream_open(dokan_session_t *s, const dokan_stream_opts_t *opts,
-                            dokan_stream_t **out) {
-    if (!s || !out) return ESP_ERR_INVALID_ARG;
-    if (s->closed || s->error) return ESP_ERR_INVALID_STATE;
+static esp_err_t stream_open_locked(dokan_session_t *s, const dokan_stream_opts_t *opts,
+                                    dokan_stream_t **out) {
+    if (s->closing || s->error) return ESP_ERR_INVALID_STATE;
     if (s->stream_count >= DOKAN_MAX_STREAMS) return ESP_ERR_NO_MEM;
     dokan_stream_t *st = new_stream(s, s->next_tx_id, true);
     if (!st) return ESP_ERR_NO_MEM;
@@ -379,8 +344,7 @@ esp_err_t dokan_stream_open(dokan_session_t *s, const dokan_stream_opts_t *opts,
     return ESP_OK;
 }
 
-esp_err_t dokan_stream_write(dokan_stream_t *st, const void *data, size_t len, size_t *written) {
-    if (!st || !written) return ESP_ERR_INVALID_ARG;
+static esp_err_t stream_write_locked(dokan_stream_t *st, const void *data, size_t len, size_t *written) {
     if (!st->local || st->finished_sent || st->reset) return ESP_ERR_INVALID_STATE;
     dokan_session_t *s = st->session;
     uint32_t accept = (len < st->send_window) ? (uint32_t)len : st->send_window;
@@ -396,16 +360,14 @@ esp_err_t dokan_stream_write(dokan_stream_t *st, const void *data, size_t len, s
     return ESP_OK;
 }
 
-esp_err_t dokan_stream_finish(dokan_stream_t *st) {
-    if (!st || !st->local) return ESP_ERR_INVALID_STATE;
-    if (st->finished_sent || st->reset) return ESP_ERR_INVALID_STATE;
+static esp_err_t stream_finish_locked(dokan_stream_t *st) {
+    if (!st->local || st->finished_sent || st->reset) return ESP_ERR_INVALID_STATE;
     enqueue(st->session, FRAME_EOF, st->id, NULL, 0);
     st->finished_sent = true;
     return ESP_OK;
 }
 
-esp_err_t dokan_stream_reset(dokan_stream_t *st, esp_err_t reason) {
-    if (!st) return ESP_ERR_INVALID_ARG;
+static esp_err_t stream_reset_locked(dokan_stream_t *st, esp_err_t reason) {
     if (st->reset) return ESP_OK;
     uint8_t p[4];
     wr32(p, (uint32_t)reason);
@@ -414,14 +376,8 @@ esp_err_t dokan_stream_reset(dokan_stream_t *st, esp_err_t reason) {
     return ESP_OK;
 }
 
-esp_err_t dokan_stream_pause(dokan_stream_t *st) {
-    if (!st || st->local) return ESP_ERR_INVALID_STATE;
-    st->paused = true;
-    return ESP_OK;
-}
-
-esp_err_t dokan_stream_resume(dokan_stream_t *st) {
-    if (!st || st->local) return ESP_ERR_INVALID_STATE;
+static esp_err_t stream_resume_locked(dokan_stream_t *st) {
+    if (st->local) return ESP_ERR_INVALID_STATE;
     if (!st->paused) return ESP_OK;
     st->paused = false;
     dokan_session_t *s = st->session;
@@ -440,11 +396,10 @@ esp_err_t dokan_stream_resume(dokan_stream_t *st) {
     return ESP_OK;
 }
 
-void dokan_stream_release(dokan_stream_t *st) {
-    if (!st) return;
+static void stream_release_locked(dokan_stream_t *st) {
     dokan_session_t *s = st->session;
     bool open_state = !st->reset && (st->local ? !st->finished_sent : !st->finished_recv);
-    if (open_state && !s->closed && !s->error) {
+    if (open_state && !s->closing && !s->error) {
         uint8_t p[4];
         wr32(p, (uint32_t)ESP_OK);
         enqueue(s, FRAME_RESET, st->id, p, 4);
@@ -452,5 +407,182 @@ void dokan_stream_release(dokan_stream_t *st) {
     free_stream(s, st);
 }
 
+/* ---- public stream API (locks, then runs the engine) --------------------- */
+
+esp_err_t dokan_stream_open(dokan_session_t *s, const dokan_stream_opts_t *opts,
+                            dokan_stream_t **out) {
+    if (!s || !out) return ESP_ERR_INVALID_ARG;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = stream_open_locked(s, opts, out);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+esp_err_t dokan_stream_write(dokan_stream_t *st, const void *data, size_t len, size_t *written) {
+    if (!st || !written) return ESP_ERR_INVALID_ARG;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = stream_write_locked(st, data, len, written);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+esp_err_t dokan_stream_finish(dokan_stream_t *st) {
+    if (!st) return ESP_ERR_INVALID_STATE;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = stream_finish_locked(st);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+esp_err_t dokan_stream_reset(dokan_stream_t *st, esp_err_t reason) {
+    if (!st) return ESP_ERR_INVALID_ARG;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = stream_reset_locked(st, reason);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+esp_err_t dokan_stream_pause(dokan_stream_t *st) {
+    if (!st) return ESP_ERR_INVALID_STATE;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = st->local ? ESP_ERR_INVALID_STATE : (st->paused = true, ESP_OK);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+esp_err_t dokan_stream_resume(dokan_stream_t *st) {
+    if (!st) return ESP_ERR_INVALID_STATE;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    esp_err_t r = stream_resume_locked(st);
+    dokan_mutex_unlock(&s->lock);
+    return r;
+}
+
+void dokan_stream_release(dokan_stream_t *st) {
+    if (!st) return;
+    dokan_session_t *s = st->session;
+    dokan_mutex_lock(&s->lock);
+    stream_release_locked(st);
+    dokan_mutex_unlock(&s->lock);
+}
+
 void dokan_stream_set_user(dokan_stream_t *st, void *user) { if (st) st->user = user; }
 void *dokan_stream_get_user(dokan_stream_t *st) { return st ? st->user : NULL; }
+
+/* ---- session lifecycle --------------------------------------------------- */
+
+esp_err_t dokan_session_create_raw(dokan_role_t role, const dokan_config_t *cfg,
+                                   dokan_transport_write_fn write_fn, void *write_ctx,
+                                   dokan_event_cb_t event_cb, void *event_arg,
+                                   dokan_session_t **out) {
+    if (!write_fn || !out) return ESP_ERR_INVALID_ARG;
+    dokan_session_t *s = calloc(1, sizeof *s);
+    if (!s) return ESP_ERR_NO_MEM;
+    s->role = role;
+    s->window = (cfg && cfg->stream_window) ? cfg->stream_window : DOKAN_DEFAULT_WINDOW;
+    s->write_fn = write_fn;
+    s->write_ctx = write_ctx;
+    s->event_cb = event_cb;
+    s->event_arg = event_arg;
+    s->next_tx_id = (role == DOKAN_ROLE_HOST) ? 2 : 1;
+    dokan_mutex_init(&s->lock);
+    *out = s;
+    return ESP_OK;
+}
+
+void dokan_session_destroy(dokan_session_t *s) {
+    if (!s) return;
+    dokan_stream_t *st = s->streams;
+    while (st) {
+        dokan_stream_t *n = st->next;
+        free(st->rx_buf);
+        free(st);
+        st = n;
+    }
+    free(s->out_buf);
+    if (s->transport) free(s->transport);
+    dokan_mutex_destroy(&s->lock);
+    free(s);
+}
+
+void dokan_session_set_transport(dokan_session_t *s, dokan_transport_t *t) { s->transport = t; }
+
+/* ---- transport host bridge (runs on the transport's I/O task) ------------ */
+
+static void host_on_connected(void *ctx) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    if (!s->closing && !s->error) emit(s, DOKAN_EVENT_CONNECTED, NULL, NULL, 0, NULL, ESP_OK);
+    dokan_mutex_unlock(&s->lock);
+}
+static void host_on_bytes(void *ctx, const uint8_t *data, size_t len) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    if (!s->closing) dokan_session_feed(s, data, len);
+    dokan_mutex_unlock(&s->lock);
+}
+static void host_on_writable(void *ctx) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    if (!s->closing) dokan_session_on_writable(s);
+    dokan_mutex_unlock(&s->lock);
+}
+static void host_on_error(void *ctx, esp_err_t err) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    if (!s->closing) protocol_error(s, err);
+    dokan_mutex_unlock(&s->lock);
+}
+static void host_on_closed(void *ctx) { dokan_session_destroy((dokan_session_t *)ctx); }
+static void host_bind_task(void *ctx) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    s->task = dokan_task_self();
+    s->task_bound = true;
+    dokan_mutex_unlock(&s->lock);
+}
+static bool host_poll_close(void *ctx) {
+    dokan_session_t *s = ctx;
+    dokan_mutex_lock(&s->lock);
+    bool d = s->deferred_close;
+    dokan_mutex_unlock(&s->lock);
+    return d;
+}
+
+void dokan_session_make_host(dokan_session_t *s, dokan_transport_host_t *host) {
+    host->on_connected = host_on_connected;
+    host->on_bytes = host_on_bytes;
+    host->on_writable = host_on_writable;
+    host->on_error = host_on_error;
+    host->on_closed = host_on_closed;
+    host->bind_task = host_bind_task;
+    host->poll_close = host_poll_close;
+    host->ctx = s;
+}
+
+esp_err_t dokan_close(dokan_session_t *s) {
+    if (!s) return ESP_ERR_INVALID_ARG;
+    dokan_mutex_lock(&s->lock);
+    bool reentrant = s->task_bound && dokan_task_eq(dokan_task_self(), s->task);
+    if (!s->goaway_sent && !s->error) {
+        uint8_t p[4];
+        wr32(p, (uint32_t)ESP_OK);
+        enqueue(s, FRAME_GOAWAY, 0, p, 4);
+        s->goaway_sent = true;
+    }
+    s->closing = true;
+    if (reentrant) {
+        s->deferred_close = true;   /* the I/O task tears down after the callback */
+        dokan_mutex_unlock(&s->lock);
+        return ESP_OK;
+    }
+    dokan_mutex_unlock(&s->lock);
+    if (s->transport && s->transport->stop) s->transport->stop(s->transport);
+    dokan_session_destroy(s);
+    return ESP_OK;
+}

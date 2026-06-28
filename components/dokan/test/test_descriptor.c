@@ -121,18 +121,24 @@ static void test_descriptor(void) {
     p.channel = 6;
     p.port = 3939;
     for (int i = 0; i < 16; i++) p.seed[i] = (uint8_t)(0x10 + i);
+    uint8_t pbin[DOKAN_WIFI_PARAMS_BIN_LEN];
+    dokan_wifi_params_encode(&p, pbin);
     char g[DOKAN_DESCRIPTOR_MAX];
-    CHECK(dokan_descriptor_encode(DOKAN_TRANSPORT_WIFI, app, &p, g, sizeof g) == ESP_OK,
+    CHECK(dokan_descriptor_encode(DOKAN_TRANSPORT_WIFI, app, pbin, sizeof pbin, g, sizeof g) == ESP_OK,
           "encode(fixed params) ESP_OK");
 
     dokan_transport_id_t t;
+    uint8_t pbuf[DOKAN_PARAMS_MAX];
+    size_t plen = 0;
+    CHECK(dokan_descriptor_parse(g, app, &t, pbuf, sizeof pbuf, &plen) == ESP_OK, "parse() ESP_OK");
     dokan_wifi_params_t q;
-    CHECK(dokan_descriptor_parse(g, app, &t, &q) == ESP_OK, "parse() ESP_OK");
-    CHECK(t == DOKAN_TRANSPORT_WIFI && q.channel == 6 && q.port == 3939 &&
-          memcmp(q.seed, p.seed, 16) == 0, "parse roundtrip == original params");
+    CHECK(t == DOKAN_TRANSPORT_WIFI && plen == DOKAN_WIFI_PARAMS_BIN_LEN &&
+          dokan_wifi_params_decode(pbuf, plen, &q) == ESP_OK &&
+          q.channel == 6 && q.port == 3939 && memcmp(q.seed, p.seed, 16) == 0,
+          "parse roundtrip == original params");
 
     char g2[DOKAN_DESCRIPTOR_MAX];
-    dokan_descriptor_encode(DOKAN_TRANSPORT_WIFI, app, &p, g2, sizeof g2);
+    dokan_descriptor_encode(DOKAN_TRANSPORT_WIFI, app, pbin, sizeof pbin, g2, sizeof g2);
     CHECK(strcmp(g, g2) == 0, "encode is deterministic");
     printf("    golden = %s (len %zu)\n", g, strlen(g));
 

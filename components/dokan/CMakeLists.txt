@@ -13,4 +13,4 @@ idf_component_register(
     SRCS ${DOKAN_SRCS}
     INCLUDE_DIRS "inc"
     PRIV_INCLUDE_DIRS "src"
-    PRIV_REQUIRES esp_hw_support)  # esp_fill_random (descriptor seed RNG)
+    PRIV_REQUIRES esp_hw_support freertos)  # esp_fill_random (seed RNG) + session lock

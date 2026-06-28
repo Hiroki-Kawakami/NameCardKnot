@@ -14,7 +14,7 @@ SRCS=$(find "$ROOT/src" -name '*.c')
 
 for t in "$DIR"/test_*.c; do
     name=$(basename "$t" .c)
-    gcc -std=c11 -Wall -Wextra -O2 \
+    gcc -std=c11 -Wall -Wextra -O2 -pthread \
         -I "$ROOT/inc" -I "$ROOT/src" -I "$DIR/shim" \
         "$t" $SRCS \
         -o "$OUT/$name"

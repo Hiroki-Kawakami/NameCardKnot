@@ -21,9 +21,16 @@ esp_err_t dokan_descriptor_create(dokan_transport_id_t transport,
 bool dokan_descriptor_valid(const char *descriptor,
                             const char app_id[DOKAN_APP_ID_LEN]);
 
-/* Stream multiplexing over an established session; events arrive on the cb given
- * at session creation. Streams are unidirectional: the opener writes, the peer
- * reads. Spec: docs/dokan.md. */
+/* Build a session from a descriptor and start its transport. Events (CONNECTED,
+ * STREAM_*, DISCONNECTED, ERROR) arrive on cb, on the transport's I/O task — keep
+ * it short and marshal to the UI thread. Streams are unidirectional: the opener
+ * writes, the peer reads. Spec: docs/dokan.md. */
+esp_err_t dokan_open(const char *descriptor, dokan_role_t role,
+                     const char app_id[DOKAN_APP_ID_LEN], const dokan_config_t *cfg,
+                     dokan_event_cb_t cb, void *arg, dokan_session_t **out);
+
+/* Tear down the session (stops the transport, joins its task, frees). Call from a
+ * thread other than the event callback. */
 esp_err_t dokan_close(dokan_session_t *s);
 
 esp_err_t dokan_stream_open(dokan_session_t *s, const dokan_stream_opts_t *opts,
