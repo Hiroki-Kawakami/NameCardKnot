@@ -412,37 +412,58 @@ WiFi transport は device 専用なので host テスト不可。実機検証は
 
 ## App 統合
 
-### 現状（疎通テスト経路）
+### 画面構成（2 フェーズ）
 
-`ShareScreen`（HOST）/ `ReceiveScreen`（CLIENT）が**固定 descriptor**（`NameCardKnot.hpp` の
-`DOKAN_TEST_DESCRIPTOR`）で `dokan_open` し、WiFi で接続して `MyCardStore` の `BLOB_PDF` を 1
-ストリームで転送する。`ReceiveScreen` は受信した `.mnc.pdf` を `nckpdf::parse_buffer` →
-`imgproc::decode_buffer`（共有 JPEG）で復号し `lv_image` で表示する（HotKnot / NVS は経由しない、
-実機 WiFi アダプタの動作確認用）。UI 更新は I/O タスクから切り離し、`lv_timer` で volatile カウンタを
-ポーリングして反映する。
-
-### 予定（本統合・未実装）
-
-GT911 は HotKnot FW から復帰するのにハードリセットが必要（Paper/PaperS3 は RESET 未結線で電源
-サイクル相当、[`docs/gotchas.md`](gotchas.md)）。そこで本統合では HotKnot 終了後に**一度再起動**して
-から dokan を始める（WiFi も clean に立ち上がる）。
+名刺交換は **HotKnot フェーズ → dokan フェーズ**の 2 段で、画面も分かれている：
 
 ```
-[ descriptor 交換画面（master/slave）]
-   master: dokan_descriptor_create(WIFI, "NCKN", d)
-   bsp_hotknot で d を交換
-        │  NVS へ {role, descriptor} を保存し bsp_restart
-[ 再起動 ]
-        │  起動時に NVS を見て、保存があれば自動で…
-        ▼
-[ 転送画面 ]  dokan_open(d, role, "NCKN", …) → stream で名刺データ交換 → 完了 → NVS クリア
+[ HotKnotScreen ]  app/screens/HotKnotScreen.{hpp,cpp}（旧 TransferScreen）
+  ├ ShareScreen   role=master, offer=1,              accept=「相手の名刺も受け取る」
+  └ ReceiveScreen role=slave,  offer=「自分の名刺も送る」, accept=1
+       master: dokan_descriptor_create(WIFI,"NCKN",d) を生成して HotKnot で送信
+       slave : 受信して dokan_descriptor_valid で検証
+            │  RAM の TransferStart{role, offer, accept, descriptor, own} を渡す
+            ▼  screen_manager.load() （再起動も NVS も挟まない）
+[ TransferScreen ]  app/screens/TransferScreen.{hpp,cpp}（単一具象・両ロール共通）
+       dokan_open → HELLO 交換 → 条件付き CARD 転送 → 加重進捗 → 自動保存 → bsp_restart
 ```
+
+当初は GT911 復帰のため HotKnot 後に一度再起動してから dokan を始める設計だったが、dokan の転送が
+数秒で終わるため**再起動は交換完了後の 1 回だけ**にした（NVS handoff は不要）。転送中はタッチが死んだ
+ままなので **TransferScreen は非インタラクティブ**（キャンセルボタンなし＝中断は物理リセット）。
+
+### TransferScreen のプロトコル（App 層・dokan の上）
 
 - 役割対応は **master→HOST / slave→CLIENT**（アプリ方針）。記述子はロールを含まない。
-- **NVS handoff は App 方針で、dokan は関知しない**。NVS に置くのは **descriptor 文字列と role
-  だけ**（この時点ではまだ名札データを交換していないので相手名などは分からない）。
-- HotKnot に sim 実装が無いため、シミュレータでは `nvs_data.json` に {role, descriptor} を直接書いて
-  「再起動後に NVS を見て転送画面で dokan を開始する」経路を注入検証できる。
+- **`KIND_HELLO`（小）と `KIND_CARD`（PDF）の 2 種**をストリーム `opts.kind` で区別（開く順では
+  なく kind で判定）。
+- **HELLO 交換**: `CONNECTED` 後に両端が HELLO を 1 本ずつ開き `{version, offer, accept, name}`
+  を送って finish。相手 HELLO を受け取ると `will_send = my.offer && peer.accept && 自分の名刺あり`、
+  `will_recv = peer.offer && my.accept` を確定（両端で同じ AND になる）。`Share→Receive` は常に発生、
+  `Receive→Share` は両チェックボックスが立つときだけ。
+- **CARD 転送**: `will_send` の側が `KIND_CARD`（`size_hint = SharePdfStream.size()`）を開き、
+  `SharePdfStream`（`MyCardStore` の share-only PDF）を 4KB ずつ pump（window 満杯は
+  `STREAM_WRITABLE` で再開）。受信側は `STREAM_OPENED` で `.nck_transfer`（隠し temp）を開き、
+  `STREAM_DATA` を追記、`STREAM_FINISHED` で確定。
+- **自動保存（power-fail safe）**: 受信は `RECEIVED_CARDS_DIR`（`/sdcard/ReceivedCards`、
+  `NameCardKnot.hpp`）に集約。隠し temp `.nck_transfer` に書き、完了後 `SharedCardData::open` で
+  検証 → 同ディレクトリの `<name>.snc.pdf`（衝突は連番）に rename。中断・不正は temp を削除するだけで
+  壊れた `.snc.pdf` は残さない。後で GalleryScreen がこのディレクトリを読む想定。
+- **加重進捗**: 1 本のバーを `(sent + received) / (send_total + recv_total)` で更新（方向数に依らない）。
+- **相手名表示**: `will_recv` のときだけ peer HELLO の name を表示（受信専用＝相手は表示しない側に
+  なる。My Card 未設定で `offer=0` の端末の name は誰にも表示されないので空でよい）。
+- **終了の握り（ACK）**: `dokan_close` は送信ウィンドウに残った未送出バイトのフラッシュを保証しない
+  （GOAWAY を best-effort で流して即 transport stop）。そのため「自分のカードを送り終えた」だけで
+  close すると相手のインフライト受信が切れる（特に HOST が双方向で I/O タスクが詰まると顕著）。対策として
+  **受信し切った側が 0 バイトの `KIND_ACK` ストリームを開いて finish**し、**送った側は相手の ACK を
+  受け取るまで close しない**。ACK は極小なので graceful close で確実に届く。完了判定は「自分の inbound
+  を受信し切った（finalize 済み）」かつ「自分の outbound を相手が ACK した」で、両ロール対称（role 依存の
+  close 順や grace は廃止、ACK 不達時のみタイムアウトで fallback）。
+- **スレッド分離**: dokan イベントは I/O タスクで届くので、UI / temp 確定 / `dokan_close` / 再起動は
+  すべて `lv_timer` ポーリング側（LVGL スレッド）が atomics を見て駆動する。
+
+シミュレータには HotKnot 実装が無いため（`bsp_hotknot_begin` が失敗）この経路は実機検証
+（ESP32-S3 ×2）。`dokan` 自体の sim transport は host 単体テスト（下記）でカバー。
 
 ## ビルド配線
 

@@ -4,7 +4,9 @@
  */
 
 #include "ReceiveScreen.hpp"
+#include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "screen_manager.hpp"
 #include "resources.h"
 #include "dokan.h"
 #include <cstring>
@@ -31,9 +33,19 @@ void ReceiveScreen::stashReceived(const uint8_t *data, size_t len) {
 
 void ReceiveScreen::onHotKnotDone() {
     endHotKnot();
-    if (dokan_descriptor_valid(descriptor_, DOKAN_APP_ID)) setProgressMessage(descriptor_);
-    else setProgressMessage("Received an invalid descriptor.");
-    addModalCloseButton();
+    if (!dokan_descriptor_valid(descriptor_, DOKAN_APP_ID)) {
+        setProgressMessage("Received an invalid descriptor.");
+        addModalCloseButton();
+        return;
+    }
+    TransferStart start{};
+    start.role = DOKAN_ROLE_CLIENT;     // slave joins the SoftAP
+    start.offer = return_my_data_ && data_ && data_->valid();
+    start.accept = true;
+    memcpy(start.descriptor, descriptor_, sizeof start.descriptor);
+    start.own = data_;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    screen_manager.load(std::make_shared<TransferScreen>(std::move(start)));
 }
 
 void ReceiveScreen::loadShareCardData() {

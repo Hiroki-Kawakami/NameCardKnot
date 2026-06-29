@@ -4,11 +4,11 @@
  */
 
 #pragma once
-#include "TransferScreen.hpp"
+#include "HotKnotScreen.hpp"
 
-class ReceiveScreen : public TransferScreen {
+class ReceiveScreen : public HotKnotScreen {
 public:
-    using TransferScreen::TransferScreen;
+    using HotKnotScreen::HotKnotScreen;
     void build() override;
 
 protected:

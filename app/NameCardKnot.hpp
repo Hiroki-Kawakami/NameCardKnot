@@ -9,6 +9,9 @@
 // dokan app identifier (descriptor gate + KDF salt).
 #define DOKAN_APP_ID "NCKN"
 
+// SD-card directory collecting cards received from peers (.snc.pdf).
+#define RECEIVED_CARDS_DIR "/sdcard/ReceivedCards"
+
 // Fixed descriptor for the dokan transfer test (ShareScreen <-> ReceiveScreen
 // over WiFi). Throwaway test value — the real flow exchanges a fresh descriptor
 // over HotKnot. WiFi transport, app "NCKN", channel 6, port 3939, fixed seed.

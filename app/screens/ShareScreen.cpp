@@ -4,7 +4,9 @@
  */
 
 #include "ShareScreen.hpp"
+#include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "screen_manager.hpp"
 #include "resources.h"
 #include <cstring>
 
@@ -144,6 +146,12 @@ void ShareScreen::onHotKnotReady() {
 
 void ShareScreen::onHotKnotDone() {
     endHotKnot();
-    setProgressMessage(descriptor_);
-    addModalCloseButton();
+    TransferStart start{};
+    start.role = DOKAN_ROLE_HOST;       // master establishes the SoftAP
+    start.offer = data_ && data_->valid();
+    start.accept = allow_return_data_;
+    memcpy(start.descriptor, descriptor_, sizeof start.descriptor);
+    start.own = data_;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    screen_manager.load(std::make_shared<TransferScreen>(std::move(start)));
 }

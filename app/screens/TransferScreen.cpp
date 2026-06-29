@@ -4,279 +4,382 @@
  */
 
 #include "TransferScreen.hpp"
-#include "screen_manager.hpp"
-#include "lv_image_adapter.hpp"
 #include "NameCardKnot.hpp"
 
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <cstring>
+#include <sys/stat.h>
 
 static const char *TAG = "transfer";
 
-static constexpr uint32_t kHotKnotSendTimeoutMs = 5000;
+static constexpr char kTempPath[] = RECEIVED_CARDS_DIR "/.nck_transfer";
+static constexpr uint32_t kBarRefreshMs = 700;
+static constexpr uint32_t kAckTimeoutMs = 5000;  // fallback if the peer's ack never arrives
+static constexpr uint32_t kRebootDelayMs = 4000; // show the result, then reboot
 
-TransferScreen::TransferScreen(std::shared_ptr<SharedCardData> data) : data_(std::move(data)) {}
+static bool file_exists(const std::string &path) {
+    std::FILE *f = std::fopen(path.c_str(), "rb");
+    if (f) { std::fclose(f); return true; }
+    return false;
+}
+
+// FAT-safe single path component from a UTF-8 card name (non-ASCII bytes kept).
+static std::string sanitize_filename(const std::string &name) {
+    std::string out;
+    for (unsigned char c : name) {
+        if (c < 0x20 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|')
+            out += '_';
+        else
+            out += (char)c;
+    }
+    while (!out.empty() && (out.back() == ' ' || out.back() == '.')) out.pop_back();
+    return out;
+}
+
+TransferScreen::TransferScreen(TransferStart start) : start_(std::move(start)) {}
 
 TransferScreen::~TransferScreen() {
-    stopWorker();
-    endHotKnot();
+    if (session_ && !closed_) dokan_close(session_);
+    if (recv_file_) std::fclose(recv_file_);
     if (poll_timer_) lv_timer_delete(poll_timer_);
+    if (reboot_timer_) lv_timer_delete(reboot_timer_);
 }
 
-void TransferScreen::back() {
-    stopWorker();
-    endHotKnot();
-    if (poll_timer_) { lv_timer_delete(poll_timer_); poll_timer_ = nullptr; }
-    screen_manager.pop();
-}
+void TransferScreen::build() {
+    createNavigation("Transfer");
+    lv_obj_set_style_border_width(navigation_, 0, 0);
+    lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_hor(contents_, 40, 0);
+    lv_obj_set_style_pad_row(contents_, 24, 0);
 
-const lv_font_t *TransferScreen::nameFont() {
-    if (!name_font_) name_font_ = std::make_unique<NameFont>(data_ ? data_->name_glyphs() : nullptr);
-    return name_font_->font();
-}
+    peer_name_label_ = lv_label_create(contents_);
+    lv_obj_set_width(peer_name_label_, LV_PCT(100));
+    lv_label_set_long_mode(peer_name_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(peer_name_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(peer_name_label_, name_font_.font(), 0);
+    lv_label_set_text(peer_name_label_, "");
+    lv_obj_add_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
 
-void TransferScreen::createHotKnotStartMessage(lv_obj_t *parent) {
-    hotknot_start_msg_ = lv_container_create(parent, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_border_width(hotknot_start_msg_, 1, 0);
-    lv_obj_set_style_border_color(hotknot_start_msg_, lv_color_black(), 0);
-    lv_obj_set_style_border_side(hotknot_start_msg_, (lv_border_side_t)(LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT), 0);
-    lv_obj_set_flex_grow(hotknot_start_msg_, 1);
-    lv_obj_set_width(hotknot_start_msg_, LV_PCT(100));
-    lv_obj_set_style_pad_row(hotknot_start_msg_, 20, 0);
+    status_label_ = lv_label_create(contents_);
+    lv_obj_set_width(status_label_, LV_PCT(100));
+    lv_label_set_long_mode(status_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(status_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(status_label_, &lv_font_montserrat_24, 0);
+    lv_label_set_text(status_label_, "Connecting...");
 
-    auto icon = lv_label_create(hotknot_start_msg_);
-    lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
-    lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
+    bar_ = lv_bar_create(contents_);
+    lv_obj_set_width(bar_, LV_PCT(80));
+    lv_bar_set_range(bar_, 0, 100);
+    lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
+    lv_obj_add_flag(bar_, LV_OBJ_FLAG_HIDDEN);
 
-    auto msg = lv_label_create(hotknot_start_msg_);
-    lv_label_set_text(msg, "Hold this screen against the other device's screen to start sharing.");
-    lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(msg, LV_PCT(100));
-    lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
-}
+    mount_sd_card();  // the receive direction writes the incoming card here
+    mkdir(RECEIVED_CARDS_DIR, 0777);  // collect received cards together (ok if it exists)
 
-lv_obj_t *TransferScreen::createShareImages(lv_obj_t *parent) {
-    share_images_ = lv_container_create(parent, LV_FLEX_FLOW_ROW);
-    lv_obj_set_height(share_images_, kShareImageH);
-    lv_obj_set_style_pad_column(share_images_, 20, 0);
-    lv_obj_remove_flag(share_images_, LV_OBJ_FLAG_CLICKABLE);
-
-    int n = data_ ? data_->share_image_count() : 0;
-    if (n > 0) {
-        // Pre-create the fixed-size placeholders so the row layout is final up
-        // front: filling one later never reflows the others (each reflow is an
-        // EPD refresh of every prior image).
-        slots_.reserve(n);
-        for (int i = 0; i < n; i++) {
-            auto slot = std::make_unique<Slot>();
-            slot->obj = lv_image_create(share_images_);
-            lv_obj_set_size(slot->obj, kShareImageW, kShareImageH);
-            slots_.push_back(std::move(slot));
-        }
-
-        startWorker();
-        poll_timer_ = lv_timer_create([](lv_timer_t *t) {
-            static_cast<TransferScreen *>(lv_timer_get_user_data(t))->poll();
-        }, 100, this);
+    dokan_config_t cfg = {};
+    cfg.connect_timeout_ms = 20000;
+    esp_err_t err = dokan_open(start_.descriptor, start_.role, DOKAN_APP_ID, &cfg,
+                               onEvent, this, &session_);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "dokan_open failed: %s", esp_err_to_name(err));
+        failed_.store(true, std::memory_order_release);
     }
-    return share_images_;
+
+    poll_timer_ = lv_timer_create([](lv_timer_t *t) {
+        static_cast<TransferScreen *>(lv_timer_get_user_data(t))->poll();
+    }, 100, this);
 }
 
-void TransferScreen::worker() {
-    imgproc::Options o;
-    o.target_w = kShareImageW;
-    o.target_h = kShareImageH;
-    o.fit = imgproc::Fit::Contain;
-    o.levels = 16;
+// MARK: dokan events (transport I/O task)
 
-    for (size_t i = 0; i < slots_.size(); i++) {
-        if (stop_.load()) break;  // interrupted at an image boundary
-        imgproc::Image img;
-        imgproc::Status st = data_->decode_share_image((int)i, o, img);
-        if (stop_.load()) break;  // interrupted mid-decode: drop the result
-        Slot *s = slots_[i].get();
-        if (st == imgproc::Status::Ok) {
-            s->img = std::move(img);
-            imgproc_fill_lv_dsc(s->img, s->dsc);
-            s->state.store(1, std::memory_order_release);
-        } else {
-            s->state.store(2, std::memory_order_release);
-        }
-    }
-    worker_running_.store(false);
-}
-
-void TransferScreen::workerTask(void *arg) {
-    static_cast<TransferScreen *>(arg)->worker();
-    vTaskDelete(nullptr);
-}
-
-void TransferScreen::startWorker() {
-    worker_running_.store(true);
-    worker_started_ = true;
-#ifdef ESP_PLATFORM
-    BaseType_t core = 1 - xPortGetCoreID();
-    UBaseType_t prio = uxTaskPriorityGet(nullptr);
-#else
-    BaseType_t core = tskNO_AFFINITY;
-    UBaseType_t prio = 1;
-#endif
-    if (xTaskCreatePinnedToCore(workerTask, "shareimg", 16384, this, prio, nullptr, core) != pdPASS)
-        worker();  // synchronous fallback (clears worker_running_)
-}
-
-void TransferScreen::stopWorker() {
-    if (!worker_started_) return;
-    stop_.store(true);
-    while (worker_running_.load()) vTaskDelay(pdMS_TO_TICKS(2));
-    worker_started_ = false;
-}
-
-void TransferScreen::poll() {
-    size_t resolved = 0;
-    for (auto &slot : slots_) {
-        int st = slot->state.load(std::memory_order_acquire);
-        if (st == 0) continue;
-        resolved++;
-        if (st == 1 && !slot->shown) {
-            slot->shown = true;
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-            lv_image_set_src(slot->obj, &slot->dsc);
-        }
-    }
-    if (resolved >= slots_.size()) {
-        lv_timer_delete(poll_timer_);
-        poll_timer_ = nullptr;
-    }
-}
-
-// MARK: HotKnot session
-
-void TransferScreen::hotKnotEvent(const bsp_hotknot_event_t *ev, void *arg) {
+void TransferScreen::onEvent(const dokan_event_t *ev, void *arg) {
     auto *self = static_cast<TransferScreen *>(arg);
     switch (ev->type) {
-        case BSP_HOTKNOT_EVENT_PAIRED:
-            self->hk_state_.store(HkState::Paired, std::memory_order_release);
-            break;
-        case BSP_HOTKNOT_EVENT_READY:
-            self->hk_state_.store(HkState::Ready, std::memory_order_release);
-            break;
-        case BSP_HOTKNOT_EVENT_RECEIVED:
-            self->stashReceived(ev->data, ev->len);
-            self->hk_state_.store(HkState::Done, std::memory_order_release);
-            break;
-        case BSP_HOTKNOT_EVENT_ERROR:
-            self->hk_err_ = ev->err;
-            self->hk_state_.store(HkState::Failed, std::memory_order_release);
-            break;
+        case DOKAN_EVENT_CONNECTED:       self->onConnected(); break;
+        case DOKAN_EVENT_STREAM_OPENED:   self->onStreamOpened(ev->stream, &ev->opts); break;
+        case DOKAN_EVENT_STREAM_DATA:     self->onStreamData(ev->stream, ev->data, ev->len); break;
+        case DOKAN_EVENT_STREAM_FINISHED: self->onStreamFinished(ev->stream); break;
+        case DOKAN_EVENT_STREAM_WRITABLE: self->onStreamWritable(ev->stream); break;
+        case DOKAN_EVENT_DISCONNECTED:    self->peer_left_.store(true, std::memory_order_release); break;
+        case DOKAN_EVENT_STREAM_RESET:
+        case DOKAN_EVENT_ERROR:           self->failed_.store(true, std::memory_order_release); break;
     }
 }
 
-bool TransferScreen::startHotKnot(bsp_hotknot_role_t role) {
-    esp_err_t err = bsp_hotknot_begin(role, hotKnotEvent, this);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "hotknot begin failed: %s", esp_err_to_name(err));
+void TransferScreen::onConnected() {
+    connected_.store(true, std::memory_order_release);
+    sendHello();
+}
+
+void TransferScreen::sendHello() {
+    if (hello_sent_) return;
+    hello_sent_ = true;
+
+    const std::string &name = start_.own ? start_.own->name() : std::string();
+    uint16_t name_len = (uint16_t)name.size();
+    if (name_len > 200) name_len = 200;
+
+    uint8_t buf[6 + 200];
+    buf[0] = (uint8_t)(kHelloVersion & 0xff);
+    buf[1] = (uint8_t)(kHelloVersion >> 8);
+    buf[2] = start_.offer ? 1 : 0;
+    buf[3] = start_.accept ? 1 : 0;
+    buf[4] = (uint8_t)(name_len & 0xff);
+    buf[5] = (uint8_t)(name_len >> 8);
+    memcpy(buf + 6, name.data(), name_len);
+    size_t total = 6 + name_len;
+
+    dokan_stream_opts_t opts = { KIND_HELLO, total };
+    dokan_stream_t *st = nullptr;
+    if (dokan_stream_open(session_, &opts, &st) != ESP_OK) {
+        failed_.store(true, std::memory_order_release);
+        return;
+    }
+    size_t off = 0;
+    for (int guard = 0; guard < 64 && off < total; guard++) {
+        size_t w = 0;
+        dokan_stream_write(st, buf + off, total - off, &w);
+        off += w;
+        if (w == 0) break;  // HELLO fits the initial window; a stall means trouble
+    }
+    dokan_stream_finish(st);
+}
+
+void TransferScreen::onStreamOpened(dokan_stream_t *st, const dokan_stream_opts_t *opts) {
+    dokan_stream_set_user(st, (void *)(intptr_t)opts->kind);
+    if (opts->kind == KIND_CARD) {
+        recv_total_.store((uint32_t)opts->size_hint, std::memory_order_relaxed);
+        recv_file_ = std::fopen(kTempPath, "wb");
+        if (!recv_file_) failed_.store(true, std::memory_order_release);
+    } else if (opts->kind == KIND_ACK) {
+        got_peer_ack_.store(true, std::memory_order_release);  // peer has our card
+    }
+}
+
+void TransferScreen::onStreamData(dokan_stream_t *st, const uint8_t *data, size_t len) {
+    auto kind = (uint16_t)(intptr_t)dokan_stream_get_user(st);
+    if (kind == KIND_HELLO) {
+        if (hello_rx_len_ + len > sizeof hello_rx_) len = sizeof hello_rx_ - hello_rx_len_;
+        memcpy(hello_rx_ + hello_rx_len_, data, len);
+        hello_rx_len_ += len;
+    } else if (kind == KIND_CARD && recv_file_) {
+        if (std::fwrite(data, 1, len, recv_file_) != len)
+            failed_.store(true, std::memory_order_release);
+        recv_.fetch_add((uint32_t)len, std::memory_order_relaxed);
+    }
+}
+
+void TransferScreen::onStreamFinished(dokan_stream_t *st) {
+    auto kind = (uint16_t)(intptr_t)dokan_stream_get_user(st);
+    if (kind == KIND_HELLO) {
+        parsePeerHello();
+    } else if (kind == KIND_CARD) {
+        if (recv_file_) { std::fclose(recv_file_); recv_file_ = nullptr; }
+        inbound_complete_.store(true, std::memory_order_release);
+        maybeSendAck();
+    }
+}
+
+void TransferScreen::onStreamWritable(dokan_stream_t *st) {
+    if (st == card_out_) pumpSend();
+}
+
+void TransferScreen::parsePeerHello() {
+    bool peer_offer = false, peer_accept = false;
+    if (hello_rx_len_ >= 6) {
+        peer_offer = hello_rx_[2] != 0;
+        peer_accept = hello_rx_[3] != 0;
+        size_t name_len = hello_rx_[4] | (hello_rx_[5] << 8);
+        if (6 + name_len > hello_rx_len_) name_len = hello_rx_len_ - 6;
+        if (name_len > kPeerNameMax - 1) name_len = kPeerNameMax - 1;
+        memcpy(peer_name_, hello_rx_ + 6, name_len);
+        peer_name_[name_len] = '\0';
+    }
+
+    bool will_send = start_.offer && peer_accept && start_.own && start_.own->valid();
+    bool will_recv = peer_offer && start_.accept;
+    will_recv_.store(will_recv, std::memory_order_relaxed);
+
+    if (will_send) {
+        send_stream_ = start_.own->share_stream();
+        if (send_stream_ && send_stream_->valid()) {
+            send_total_.store((uint32_t)send_stream_->size(), std::memory_order_relaxed);
+            dokan_stream_opts_t opts = { KIND_CARD, send_stream_->size() };
+            if (dokan_stream_open(session_, &opts, &card_out_) != ESP_OK) will_send = false;
+        } else {
+            will_send = false;
+        }
+    }
+    will_send_.store(will_send, std::memory_order_relaxed);
+    hello_ready_.store(true, std::memory_order_release);
+
+    if (will_send && card_out_) pumpSend();
+    maybeSendAck();  // nothing to receive -> ack immediately
+}
+
+void TransferScreen::maybeSendAck() {
+    if (ack_sent_ || !hello_ready_.load(std::memory_order_relaxed)) return;
+    bool inbound_done = !will_recv_.load(std::memory_order_relaxed) ||
+                        inbound_complete_.load(std::memory_order_relaxed);
+    if (!inbound_done) return;
+    ack_sent_ = true;
+    dokan_stream_opts_t opts = { KIND_ACK, 0 };
+    dokan_stream_t *st = nullptr;
+    if (dokan_stream_open(session_, &opts, &st) == ESP_OK) dokan_stream_finish(st);
+}
+
+void TransferScreen::pumpSend() {
+    for (;;) {
+        if (send_buf_off_ == send_buf_len_) {
+            send_buf_len_ = send_stream_->read(send_buf_, kChunk);
+            send_buf_off_ = 0;
+            if (send_buf_len_ == 0) {
+                if (send_stream_->remaining() > 0 || send_stream_->error()) {
+                    failed_.store(true, std::memory_order_release);
+                    return;
+                }
+                dokan_stream_finish(card_out_);
+                send_done_.store(true, std::memory_order_release);
+                return;
+            }
+        }
+        size_t w = 0;
+        dokan_stream_write(card_out_, send_buf_ + send_buf_off_, send_buf_len_ - send_buf_off_, &w);
+        send_buf_off_ += w;
+        sent_.fetch_add((uint32_t)w, std::memory_order_relaxed);
+        if (w == 0) return;  // window full: resume on STREAM_WRITABLE
+    }
+}
+
+// MARK: UI / lifecycle (LVGL thread)
+
+void TransferScreen::poll() {
+    if (terminating_) return;
+    if (!connected_.load(std::memory_order_acquire)) {
+        if (failed_.load(std::memory_order_acquire)) terminate(false);  // connect failed/timeout
+        return;
+    }
+    if (!hello_ready_.load(std::memory_order_acquire)) {
+        // Error or peer drop during the handshake.
+        if (failed_.load(std::memory_order_acquire) || peer_left_.load(std::memory_order_acquire))
+            terminate(false);
+        return;
+    }
+    // Note: the failed_/peer_left_ terminal checks come AFTER the done test below, so
+    // the session teardown that follows a successful exchange (the peer closing, seen
+    // here as an error/disconnect) never overrides a completed transfer.
+
+    if (!name_shown_) {
+        name_shown_ = true;
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+        if (will_recv_.load(std::memory_order_relaxed) && peer_name_[0]) {
+            lv_label_set_text(peer_name_label_, peer_name_);
+            lv_obj_remove_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        lv_label_set_text(status_label_, "Exchanging cards...");
+        lv_obj_remove_flag(bar_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (will_recv_.load(std::memory_order_relaxed) &&
+        inbound_complete_.load(std::memory_order_acquire) && !recv_finalized_) {
+        recv_finalized_ = true;
+        recv_ok_ = finalizeReceived();
+    }
+
+    uint32_t total = send_total_.load(std::memory_order_relaxed) +
+                     recv_total_.load(std::memory_order_relaxed);
+    if (total > 0) {
+        uint32_t cur = sent_.load(std::memory_order_relaxed) + recv_.load(std::memory_order_relaxed);
+        int pct = (int)((uint64_t)cur * 100 / total);
+        if (pct > 100) pct = 100;
+        if (pct != last_pct_ && (last_pct_ < 0 || pct == 100 ||
+                                 lv_tick_elaps(last_bar_tick_) >= kBarRefreshMs)) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_FAST);
+            lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
+            last_pct_ = pct;
+            last_bar_tick_ = lv_tick_get();
+        }
+    }
+
+    bool send_ok = !will_send_.load(std::memory_order_relaxed) || send_done_.load(std::memory_order_acquire);
+    bool recv_ok = !will_recv_.load(std::memory_order_relaxed) || recv_finalized_;
+    if (send_ok && recv_ok) {
+        if (!done_marked_) {
+            done_marked_ = true;
+            done_tick_ = lv_tick_get();
+            epd_set_next_refresh_mode(BSP_EPD_MODE_FAST);
+            lv_bar_set_value(bar_, 100, LV_ANIM_OFF);
+        }
+        // Close only once the peer has acked our card (so dokan_close can't drop
+        // in-flight send-window bytes); fall back on a timeout / the peer leaving.
+        bool peer_has_our_card = !will_send_.load(std::memory_order_relaxed) ||
+                                 got_peer_ack_.load(std::memory_order_acquire);
+        if (peer_has_our_card ||
+            peer_left_.load(std::memory_order_acquire) ||
+            failed_.load(std::memory_order_acquire) ||
+            lv_tick_elaps(done_tick_) >= kAckTimeoutMs)
+            terminate(recv_ok_);
+        return;
+    }
+
+    // Errored or peer gone: only a failure if bytes are still missing. If all bytes
+    // moved and just the finalize is pending, fall through — the next tick finalizes
+    // and the done branch above closes cleanly.
+    bool inbound_short = will_recv_.load(std::memory_order_relaxed) &&
+                         !inbound_complete_.load(std::memory_order_acquire);
+    bool outbound_short = will_send_.load(std::memory_order_relaxed) &&
+                          !send_done_.load(std::memory_order_acquire);
+    if ((failed_.load(std::memory_order_acquire) || peer_left_.load(std::memory_order_acquire)) &&
+        (inbound_short || outbound_short))
+        terminate(false);
+}
+
+bool TransferScreen::finalizeReceived() {
+    std::string name;
+    {
+        auto data = SharedCardData::open(kTempPath);
+        if (data && data->valid()) name = data->name();
+    }
+    if (name.empty() && !file_exists(kTempPath)) return false;
+
+    std::string base = sanitize_filename(name);
+    if (base.empty()) base = "card";
+    std::string dir = RECEIVED_CARDS_DIR "/";
+    std::string dest = dir + base + ".snc.pdf";
+    for (int n = 1; file_exists(dest); n++)
+        dest = dir + base + "_" + std::to_string(n) + ".snc.pdf";
+
+    if (std::rename(kTempPath, dest.c_str()) != 0) {
+        std::remove(kTempPath);
         return false;
     }
-    hk_active_ = true;
-    hk_seen_ = HkState::Approaching;
-    hk_state_.store(HkState::Approaching, std::memory_order_release);
-    hk_timer_ = lv_timer_create([](lv_timer_t *t) {
-        static_cast<TransferScreen *>(lv_timer_get_user_data(t))->pollHotKnot();
-    }, 100, this);
+    saved_name_ = name;
     return true;
 }
 
-void TransferScreen::endHotKnot() {
-    if (!hk_active_) return;
-    hk_active_ = false;
-    while (hk_send_busy_.load(std::memory_order_acquire)) vTaskDelay(pdMS_TO_TICKS(2));
-    bsp_hotknot_end();
-    if (hk_timer_) { lv_timer_delete(hk_timer_); hk_timer_ = nullptr; }
-}
+void TransferScreen::terminate(bool ok) {
+    if (terminating_) return;
+    terminating_ = true;
+    if (poll_timer_) { lv_timer_delete(poll_timer_); poll_timer_ = nullptr; }
 
-void TransferScreen::sendTask(void *arg) {
-    auto *self = static_cast<TransferScreen *>(arg);
-    esp_err_t err = bsp_hotknot_send(self->hk_send_data_, self->hk_send_len_, kHotKnotSendTimeoutMs);
-    if (err != ESP_OK) self->hk_err_ = err;
-    self->hk_send_busy_.store(false, std::memory_order_relaxed);
-    self->hk_state_.store(err == ESP_OK ? HkState::Done : HkState::Failed, std::memory_order_release);
-    vTaskDelete(nullptr);
-}
+    if (session_ && !closed_) { dokan_close(session_); closed_ = true; }
+    if (recv_file_) { std::fclose(recv_file_); recv_file_ = nullptr; }
+    if (!ok) std::remove(kTempPath);  // drop a partial / invalid receive
 
-void TransferScreen::sendHotKnot(const void *data, size_t len) {
-    hk_send_data_ = data;
-    hk_send_len_ = len;
-    hk_send_busy_.store(true, std::memory_order_relaxed);
-    if (xTaskCreate(sendTask, "hksend", 4096, this, uxTaskPriorityGet(nullptr), nullptr) != pdPASS) {
-        hk_send_busy_.store(false, std::memory_order_relaxed);
-        failHotKnot(ESP_FAIL);
-    }
-}
-
-void TransferScreen::failHotKnot(esp_err_t err) {
-    hk_err_ = err;
-    hk_state_.store(HkState::Failed, std::memory_order_release);
-}
-
-void TransferScreen::pollHotKnot() {
-    HkState s = hk_state_.load(std::memory_order_acquire);
-    while (hk_seen_ != s) {
-        switch (hk_seen_) {
-            case HkState::Idle:
-            case HkState::Approaching:
-                hk_seen_ = HkState::Paired; onHotKnotPaired(); break;
-            case HkState::Paired:
-                if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
-                else { hk_seen_ = HkState::Ready; onHotKnotReady(); }
-                if (hotknot_start_msg_) lv_obj_set_style_opa(hotknot_start_msg_, 0, 0);
-                break;
-            case HkState::Ready:
-                if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
-                else { hk_seen_ = HkState::Done; onHotKnotDone(); }
-                break;
-            default: return;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    lv_obj_add_flag(bar_, LV_OBJ_FLAG_HIDDEN);
+    if (ok) {
+        if (!saved_name_.empty()) {
+            lv_label_set_text_fmt(status_label_, "Received %s.", saved_name_.c_str());
+        } else {
+            lv_label_set_text(status_label_, "Done.");
         }
+    } else {
+        lv_obj_add_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(status_label_, "Transfer failed.");
     }
-}
 
-void TransferScreen::onHotKnotPaired() {
-    showProgressModal("Connecting to the other device...");
-}
-
-void TransferScreen::onHotKnotFailed(esp_err_t err) {
-    ESP_LOGW(TAG, "hotknot failed: %s", esp_err_to_name(err));
-    endHotKnot();
-    if (!modal_) showProgressModal("");
-    setProgressMessage("Connection failed. Please try again.");
-    addModalCloseButton();
-}
-
-// MARK: Progress / result modal
-
-void TransferScreen::showProgressModal(const char *message) {
-    if (modal_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-    modal_ = lv_modal_open(root_);
-    lv_modal_title_create(modal_, transferTitle());
-    modal_message_ = lv_modal_message_create(modal_, message);
-}
-
-void TransferScreen::setProgressMessage(const char *message) {
-    if (!modal_message_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-    lv_label_set_text(modal_message_, message);
-}
-
-void TransferScreen::addModalCloseButton(const char *text) {
-    if (!modal_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-    lv_modal_button_create(modal_, text, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *) {
-        lv_async_call([this]() {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-            back();
-        });
-    });
+    reboot_timer_ = lv_timer_create([](lv_timer_t *) { bsp_restart(); }, kRebootDelayMs, this);
+    lv_timer_set_repeat_count(reboot_timer_, 1);
 }
