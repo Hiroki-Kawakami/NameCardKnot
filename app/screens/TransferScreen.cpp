@@ -380,6 +380,6 @@ void TransferScreen::terminate(bool ok) {
         lv_label_set_text(status_label_, "Transfer failed.");
     }
 
-    reboot_timer_ = lv_timer_create([](lv_timer_t *) { bsp_restart(); }, kRebootDelayMs, this);
+    reboot_timer_ = lv_timer_create([](lv_timer_t *) { bsp_hw_reset(); }, kRebootDelayMs, this);
     lv_timer_set_repeat_count(reboot_timer_, 1);
 }

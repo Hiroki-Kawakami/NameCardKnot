@@ -162,6 +162,7 @@ void app_entry() {
     bsp_config.touch.task_priority = 6;
     bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
+    bsp_rtc_timer_stop();
     lvgl_init();
     mycard::Store::mount();
 
