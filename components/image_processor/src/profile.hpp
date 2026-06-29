@@ -9,7 +9,9 @@
 
 // Lightweight per-decode stage timing. On by default (device + simulator);
 // the host unit tests build with -DIMGPROC_PROFILE=0 to stay quiet. Output goes
-// to printf (device: idf monitor; simulator: terminal).
+// to printf (device: idf monitor; simulator: terminal). The per-stage internals
+// of decode/resize/dither now live in image_framework, so this only times the
+// orchestration boundaries.
 #ifndef IMGPROC_PROFILE
 #define IMGPROC_PROFILE 1
 #endif
@@ -18,18 +20,12 @@
 namespace imgproc {
 
 struct Prof {
-    int64_t total_us;      // whole decode_stream
-    int64_t decode_us;     // RowSource::next_row (decode compute + I/O)
-    int64_t io_us;         // raw source reads (SD / file)
-    int64_t transform_us;  // color convert + downsample (includes dither_us)
+    int64_t total_us;      // whole decode
+    int64_t decode_us;     // imgf_decoder_next_row (decode + I/O)
+    int64_t transform_us;  // recolor + resize (includes dither_us)
     int64_t dither_us;     // finalize + dither + pack
-    int64_t entropy_us;    // PNG inflate / JPEG Huffman + dequant
-    int64_t idct_us;       // JPEG IDCT
-    int64_t post_us;       // PNG unfilter + convert / JPEG YCbCr assembly
-    int     io_calls;
-    long    io_bytes;
     const char *fmt;       // "png" / "jpeg"
-    int     src_w, src_h, scale;
+    int     src_w, src_h;
 };
 
 extern Prof g_prof;

@@ -8,12 +8,13 @@
 #include <cstdio>
 #include <utility>
 
-#include "alloc.hpp"
 #include "pipeline.hpp"
 #include "profile.hpp"
-#include "rowsource.hpp"
-#include "sniff.hpp"
-#include "stream.hpp"
+
+#include "imgf_alloc.h"
+#include "imgf_decoder.h"
+#include "imgf_sniff.h"
+#include "imgf_stream.h"
 
 namespace imgproc {
 
@@ -59,7 +60,7 @@ Image &Image::operator=(Image &&other) noexcept {
 }
 
 void Image::reset() {
-    img_free(data);
+    imgf_free(data);
     data = nullptr;
     w = h = 0;
     stride = 0;
@@ -67,58 +68,101 @@ void Image::reset() {
 
 // ---- Orchestration ----------------------------------------------------------
 
-static Status decode_stream(InputStream &in, const Options &opts, Image &out, Progress *prog,
-                            const ParallelCfg *par) {
-    out.reset();
-    PROF_RESET();
-    PROF_T0(t_total);
+#if IMGPROC_PROFILE
+static const char *fmt_name(imgf_format_t f) {
+    return f == IMGF_FMT_JPEG ? "jpeg" : f == IMGF_FMT_PNG ? "png" : "?";
+}
+#endif
 
-    uint8_t hdr[InputStream::kPeekMax];
-    size_t  n = in.peek(hdr, sizeof hdr);
-    Format  fmt = sniff(hdr, n);
-    if (fmt == Format::Unknown) return Status::UnsupportedFormat;
+// Make the decoder for `fmt`, open it on `s`, and apply the source-size guard.
+// The stream source state behind `s` must outlive the returned decoder. Returns
+// nullptr with *st set on failure.
+static imgf_decoder_t *open_decoder_on_stream(imgf_stream_t s, imgf_format_t fmt,
+                                              const Options &opts, Status *st) {
+    *st = Status::Ok;
+    if (fmt == IMGF_FMT_UNKNOWN) { *st = Status::UnsupportedFormat; return nullptr; }
+    imgf_decoder_t *dec = imgf_make_decoder(fmt);
+    if (!dec) { *st = Status::UnsupportedFormat; return nullptr; }
 
-    std::unique_ptr<Decoder> dec = make_decoder(fmt);
-    if (!dec) return Status::UnsupportedFormat;  // Phase 1: decoders not wired
+    imgf_decode_opts_t dopts = {};
+    dopts.target_w = opts.target_w;
+    dopts.target_h = opts.target_h;
+    dopts.max_src_pixels = opts.max_src_pixels;
+    dopts.alloc_caps = opts.alloc_caps;
 
-    Status st = dec->open(in, opts);
-    if (st != Status::Ok) return st;
+    imgf_err_t e = imgf_decoder_open(dec, s, &dopts);
+    if (e != IMGF_OK) { imgf_decoder_destroy(dec); *st = status_from_imgf(e); return nullptr; }
 
-    st = check_src_size(dec->width, dec->height, opts.max_src_pixels);
-    if (st != Status::Ok) return st;
-
-    st = run_pipeline(*dec, opts, out, prog, par);
-    PROF_ADD(total_us, t_total);
-    PROF_REPORT(out.w, out.h);
-    return st;
+    uint32_t sw = imgf_decoder_width(dec), sh = imgf_decoder_height(dec);
+    if (sw == 0 || sh == 0) { imgf_decoder_destroy(dec); *st = Status::DecodeError; return nullptr; }
+    if (opts.max_src_pixels && static_cast<uint64_t>(sw) * sh > opts.max_src_pixels) {
+        imgf_decoder_destroy(dec);
+        *st = Status::TooLarge;
+        return nullptr;
+    }
+#if IMGPROC_PROFILE
+    g_prof.fmt = fmt_name(fmt);
+    g_prof.src_w = static_cast<int>(sw);
+    g_prof.src_h = static_cast<int>(sh);
+#endif
+    return dec;
 }
 
-static Status decode_file_impl(const char *path, const Options &opts, Image &out, Progress *prog,
-                               const ParallelCfg *par, long offset, size_t length) {
-    if (!path) return Status::BadArgument;
-    FILE *fp = std::fopen(path, "rb");
-    if (!fp) return Status::OpenFailed;
-    FileInputStream in(fp, offset, length);
-    Status st = in.ok() ? decode_stream(in, opts, out, prog, par) : Status::OutOfMemory;
-    std::fclose(fp);
-    return st;
+// Shared by the synchronous decode_file and the async path (pipeline.cpp). Sniffs
+// the container head, then rewinds to `offset`: the imgf file source only seeks
+// lazily when offset > 0, so a whole-file decode must undo this peek's advance.
+imgf_decoder_t *open_file_decoder(FILE *fp, long offset, size_t length, const Options &opts,
+                                  imgf_file_source_t *fs, Status *st) {
+    uint8_t hdr[8];
+    std::fseek(fp, offset, SEEK_SET);
+    size_t n = std::fread(hdr, 1, sizeof hdr, fp);
+    imgf_format_t fmt = imgf_sniff(hdr, n);
+    std::fseek(fp, offset, SEEK_SET);
+    imgf_stream_t s = imgf_stream_from_file(fs, fp, offset, length);
+    return open_decoder_on_stream(s, fmt, opts, st);
 }
 
 Status decode_file(const char *path, const Options &opts, Image &out, Progress *prog,
                    uint32_t offset, uint32_t length) {
-    return decode_file_impl(path, opts, out, prog, nullptr, (long)offset, (size_t)length);
-}
+    if (!path) return Status::BadArgument;
+    FILE *fp = std::fopen(path, "rb");
+    if (!fp) return Status::OpenFailed;
 
-Status decode_file_parallel(const char *path, const Options &opts, Image &out, Progress *prog,
-                            const ParallelCfg &par, uint32_t offset, uint32_t length) {
-    return decode_file_impl(path, opts, out, prog, &par, (long)offset, (size_t)length);
+    out.reset();
+    PROF_RESET();
+    PROF_T0(t_total);
+
+    imgf_file_source_t fs;
+    Status st = Status::Ok;
+    imgf_decoder_t *dec = open_file_decoder(fp, (long)offset, (size_t)length, opts, &fs, &st);
+    if (dec) {
+        st = run_pipeline(dec, opts, out, prog);
+        imgf_decoder_destroy(dec);
+        PROF_ADD(total_us, t_total);
+        PROF_REPORT(out.w, out.h);
+    }
+    std::fclose(fp);
+    return st;
 }
 
 Status decode_buffer(const void *data, size_t len, const Options &opts, Image &out, Progress *prog) {
     if (!data && len) return Status::BadArgument;
-    BufferInputStream in(data, len);
-    if (!in.ok()) return Status::OutOfMemory;
-    return decode_stream(in, opts, out, prog, nullptr);
+    out.reset();
+    PROF_RESET();
+    PROF_T0(t_total);
+
+    imgf_format_t fmt = imgf_sniff(data, len < 8 ? len : 8);
+    imgf_buffer_source_t bs;
+    imgf_stream_t s = imgf_stream_from_buffer(&bs, data, len);
+    Status st = Status::Ok;
+    imgf_decoder_t *dec = open_decoder_on_stream(s, fmt, opts, &st);
+    if (dec) {
+        st = run_pipeline(dec, opts, out, prog);
+        imgf_decoder_destroy(dec);
+        PROF_ADD(total_us, t_total);
+        PROF_REPORT(out.w, out.h);
+    }
+    return st;
 }
 
 }  // namespace imgproc

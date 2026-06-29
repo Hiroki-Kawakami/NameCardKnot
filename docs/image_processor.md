@@ -2,199 +2,156 @@
 
 `components/image_processor` decodes a JPEG or PNG (from an SD file or a memory
 buffer) and produces a dithered grayscale buffer sized for the 16-gray EPD. It is
-**LVGL-free and has no external dependencies** — the JPEG/PNG decoders and the
-zlib `inflate` are all in-tree, so the simulator and the device run the exact same
-code. Public API: `inc/image_processor.hpp`.
+**LVGL-free**: the output is a plain buffer the app wraps into an `lv_image_dsc_t`.
+Public API: `inc/image_processor.hpp`.
+
+Since the C image-processing primitives were extracted into the reusable
+**`esp-devkit/libs/image_framework`** (imgf) library, this component is now **pure
+orchestration**: it owns the public C++ API (`Options`/`Image`/`Status`/`Progress`/
+`DecodeJob`), maps `Options` onto the imgf module options, and streams an opened
+decoder through the imgf stages. No decoder, resizer, ditherer, packer, color
+math, or async runner lives here anymore — see
+[`image_framework.md`](../esp-devkit/libs/image_framework) for those.
 
 ## Why it exists
 
 The previous path fed the SD image straight to LVGL's built-in decoders, which
 gave no control over color/dithering and **silently stopped on large images**
 (the decoder allocated the full-resolution canvas in internal RAM and failed with
-no error surfaced). This library fixes both: every stage streams row-by-row so the
-full-resolution source is never materialized, allocation failures and oversized
-inputs return a `Status`, and color conversion + dithering are explicit options.
+no error surfaced). This component fixes both: every imgf stage streams
+row-by-row so the full-resolution source is never materialized, allocation
+failures and oversized inputs return a `Status`, and color conversion + dithering
+are explicit options.
 
-## The pipeline (`src/pipeline.cpp`, `run_pipeline`)
+## The pipeline (`src/pipeline.cpp`)
 
-One top-to-bottom streaming pass. Only per-row working buffers plus the output are
-held — never the whole decoded image:
+One top-to-bottom streaming pass over image_framework. Only per-row working
+buffers plus the output are held — never the whole decoded image:
 
 ```
-RowSource (decoder)  ── rows of RGB888 / Gray8 at (downscaled) source resolution
-   → box downscale    ── area-average to the exact target W×H (H within row, V by
-                          push-driven accumulation of source rows; Q16 weights)
-   → color convert    ── linearize (sRGB/power) → Rec709/601/avg luma → output gamma
-   → dither           ── quantize to N levels (Bayer ordered, or error diffusion)
-   → pack             ── L8 (high nibble = gray) / I4 / I1   → imgproc::Image
+imgf_decoder            ── rows of RGB888 / Gray8 at (downscaled) source resolution
+   → imgf_recolor       ── to_intensity: linearize (sRGB/power) → Rec709/601/avg luma
+       (front)             → Gray8 intensity safe to area-average
+   → imgf_resizer       ── box downscale (Gray8→Gray8, geometry only) to target W×H
+   → imgf_recolor       ── finalize: output gamma (sRGB/power/EPD LUT) + invert
+       (back)
+   → imgf_dither        ── quantize to N levels (Bayer ordered, or error diffusion)
+   → imgf_raw_encoder   ── L8 (high nibble = gray) / I4 / I1   → imgproc::Image
 ```
 
-`linear_downsample` decides where output gamma is applied: averaging in **linear
-light** (default, photometrically correct) defers gamma to after the box filter;
-averaging in perceptual space applies it before. Both share one code path
-(`ColorPipeline::to_intensity` produces the right domain, `finalize` matches it).
+The non-obvious shape is that **`imgf_recolor` straddles the resizer**. To average
+correctly in linear light, the front phase converts each source pixel to an
+intensity (linear luminance with `linear_downsample`, or perceptual gray without),
+the resizer box-averages *that* (it is a geometry-only Gray8→Gray8 pass, not its
+own RGB→gray conversion), and the back phase re-encodes the averaged intensity to
+the final gray. `linear_downsample` therefore only changes which domain the front
+emits and whether the back applies output gamma — both halves come from the same
+`imgf_recolor` instance. (Intensity is carried as Gray8, so linear averaging is at
+8-bit precision; the difference vs the old 16-bit accumulation is sub-level for
+display-sized images.)
 
-The output buffer is allocated with `img_alloc(size, opts.alloc_caps)` — PSRAM by
+The output buffer is allocated with `imgf_alloc(size, opts.alloc_caps)` — PSRAM by
 default on device, `malloc` on host. Transient per-row buffers use the internal
-heap.
+heap (`imgf_alloc_internal`).
 
 ## Options that matter
 
 | Option | Effect |
 |---|---|
-| `target_w/h` + `fit` | Output box. `Contain` preserves aspect; `Stretch` is exact. **Decode at the on-screen size and display 1:1** — letting LVGL rescale ruins the dither. |
-| `max_src_pixels` | Pre-allocation guard. Rejects oversized sources (`TooLarge`) before any full-res work; also drives JPEG's decode-time downscale. |
-| `levels` | 2 → EPD `FAST`; 16 → EPD `QUALITY` (the EPD's two modes). L8 packs `level*255/(N-1)`, so 16 levels land exactly in the byte's high nibble. |
-| `dither` | `None`, `Bayer2/4/8` (stateless, frame-stable — good for EPD), or error diffusion (`FloydSteinberg` default, `Atkinson/Sierra/JJN/Stucki`; `serpentine`). |
-| `luma` / `in_gamma` / `out_gamma` | Rec709 (default) / Rec601 / average / custom; sRGB / power / linear in; sRGB / power / **`EpdLut`** out (16-entry measured-reflectance curve for panel calibration). |
-| `invert` | Flips black/white. Default off (L8 255 = white, matching the panel). |
-| `out` | `L8` (default, 1:1 to EPD + LVGL `L8`), `I4` (16-color palette), `I1` (1bpp). The app adapter only wraps `L8` today; `I4`/`I1` need an LVGL palette prepended. |
+| `target_w/h` + `fit` | Output box. `Contain` preserves aspect; `Stretch` is exact. **Decode at the on-screen size and display 1:1** — letting LVGL rescale ruins the dither. Maps to `imgf_resize_opts_t`. |
+| `max_src_pixels` | Pre-allocation guard. Drives the JPEG decoder's decode-time downscale (an imgf hint); the source is also rejected (`TooLarge`) here after open if the decoded geometry still exceeds it (PNG ignores the hint, so a huge PNG is caught here). |
+| `levels` | 2 → EPD `FAST`; 16 → EPD `QUALITY`. L8 packs `level*255/(N-1)` — for 16 levels each lands exactly in the byte's high nibble, so the dither runs `OUT_GRAY` for L8 and `OUT_INDEX` for I4/I1. |
+| `dither` | `None`, `Bayer2/4/8` (stateless, frame-stable — good for EPD), or error diffusion (`FloydSteinberg` default, `Atkinson/Sierra/JJN/Stucki`; `serpentine`). Maps to `imgf_dither_opts_t`. |
+| `luma` / `in_gamma` / `out_gamma` | Rec709 (default) / Rec601 / average / custom; sRGB / power / linear in; sRGB / power / **`EpdLut`** out (16-entry measured-reflectance curve for panel calibration). Maps to `imgf_recolor_opts_t`. |
+| `invert` | Flips black/white in the recolor finalize. Default off (L8 255 = white). |
+| `out` | `L8` (default, 1:1 to EPD + LVGL `L8`), `I4` (16-color palette), `I1` (1bpp). Maps to `imgf_raw_format_t`. The app adapter only wraps `L8` today. |
 
-## Decoders (`src/png.cpp`, `src/jpeg.cpp`, `src/inflate.cpp`)
+## Orchestration (`src/image_processor.cpp`)
 
-Both are `Decoder`s (a `RowSource` + `open(InputStream&, const Options&)`) behind
-`make_decoder()`, selected by `sniff()`.
-
-**PNG** — chunk parse (IHDR/PLTE/tRNS/IDAT/IEND) → 5-filter unfilter → per-row
-color normalization. Streams IDAT through a **pull-based in-tree `inflate`**
-(stored/fixed/dynamic DEFLATE, 32 KiB window), so it decodes one scanline at a
-time. Huffman symbols decode through a 9-bit fast table (`Huff::fast`, built in
-`construct`); only codes longer than 9 bits fall back to a bit-by-bit walk. Supports 8-bit gray/RGB/RGBA, 1/2/4/8-bit gray and palette, `tRNS`
-composited over white. Unsupported (returns from `open`): 16-bit channels,
-interlaced.
-
-**JPEG** — baseline (SOF0), 8-bit, Huffman. Marker parse → MCU-row band decode →
-Huffman/dequant/IDCT/YCbCr→RGB. Huffman uses the same 9-bit fast-table scheme as
-inflate (built in `parse_dht`; MSB-first, so no bit reversal), over a 32-bit
-MSB-first bit buffer. **Downscales while decoding**: a
-1/1..1/8 factor is chosen in `setup()` from `target_w/h` and `max_src_pixels`;
-each 8×8 block is reduced to (8/S)×(8/S) — **DC-only at 1/8**, a jidctfst-style
-integer **AAN IDCT** then box-reduce at 1/2 and 1/4, full AAN IDCT at 1/1. AC-free
-blocks take a **flat-block fast path** (skip the IDCT, fill with the DC value —
-a big win for the smooth regions of a name card). The AAN scale factors are
-folded into the dequant table (`aan_qt_`, built in `setup()`), so the IDCT applies
-dequant + scaling in one multiply. Supports grayscale + YCbCr with sampling
-factors ≤ 2×2 (4:4:4 / 4:2:2 / 4:4:0 / 4:2:0) and restart intervals. Unsupported:
-progressive, 16-bit, arithmetic, CMYK.
-
-Both decoders pull **one byte at a time** from the `InputStream`. The base class
-batches the underlying source into a 32 KiB heap window (`raw_read` is called per
-refill, not per byte), so per-byte decoding doesn't hit a `fread` per byte — which
-is very slow on FAT-over-SDSPI on the device. The window is heap-allocated (too
-big for the LVGL task stack); `InputStream::ok()` reports an allocation failure.
+`decode_file` / `decode_file_parallel` / `decode_buffer` build an `imgf_stream_t`
+(file sub-range or buffer), `imgf_sniff` the container head, `imgf_make_decoder` +
+`imgf_decoder_open`, guard the source size, then call `run_pipeline`. The stream
+source state (`imgf_file_source_t` / `imgf_buffer_source_t`) lives on the caller's
+stack and must outlive the decode — the dual path blocks in `run_pipeline` until
+both tasks finish, so it does. (`decode_file` re-seeks to `offset` after the sniff
+peek: the imgf file source only seeks lazily when `offset > 0`, so a whole-file
+decode would otherwise start mid-stream.)
 
 ## Status codes
 
 `Ok`, `OpenFailed` (file), `UnsupportedFormat` (container/feature), `DecodeError`
-(malformed), `Truncated` (stream ended early — also what a mid-decode error
-surfaces as, since `RowSource::next_row` is boolean), `TooLarge`, `OutOfMemory`,
-`BadArgument`.
+(malformed), `Truncated` (stream ended early), `TooLarge`, `OutOfMemory`,
+`BadArgument`, `Cancelled`. `src/pipeline.cpp`'s `status_from_imgf` maps each
+`imgf_err_t` onto these.
 
 ## App integration
 
-`NameCardScreen::build()` decodes at `lv_display_get_{horizontal,vertical}_resolution`
+`NameCardScreen` decodes at `lv_display_get_{horizontal,vertical}_resolution`
 with `Fit::Contain` + `levels=16`, owns the `imgproc::Image`, and wraps it into an
 `lv_image_dsc_t` via `app/lv_image_adapter.hpp` (L8 → `LV_COLOR_FORMAT_L8`). The
-Image must outlive the descriptor and the `lv_image`. EPD `QUALITY_FULL` is set in
-`onAppear()`.
+Image must outlive the descriptor and the `lv_image`.
 
 ## Profiling (`IMGPROC_PROFILE`)
 
-`decode_*` prints a one-line per-decode stage breakdown via `printf` (device: idf
+`decode_*` prints a one-line per-decode breakdown via `printf` (device: idf
 monitor; simulator: terminal). On by default; the host unit tests build with
-`-DIMGPROC_PROFILE=0` to stay quiet (define it to 0 anywhere to compile the timing
-out). Timing source is `esp_timer_get_time()` on device, `std::chrono` on host
-(`src/profile.{hpp,cpp}`).
+`-DIMGPROC_PROFILE=0`. With the stage internals now inside imgf, this times only
+the orchestration boundaries:
 
 ```
-[imgproc] 540x540  total=7860us  decode=1562us (compute=1169us io=393us,11 calls,40KB)  color+down=330us  dither=5780us
+[imgproc] 540x960 src=1080x1920 jpeg  total=7860us  decode=1562us  color+down=330us  dither=5780us
 ```
 
-- **decode** — `RowSource::next_row` (inflate / JPEG IDCT+Huffman), inclusive of
-  **io** (the raw SD/file reads); `compute = decode − io`.
-- **color+down** — linearize + luma + box downscale.
-- **dither** — finalize + dither + pack.
-
-Use it to decide what to optimize before touching code — the host and device
-splits differ, so measure on hardware.
-
-### Hot-path integerization
-
-The first device profile was dominated by `double` math (`double` is software-
-emulated on the ESP32-S3 — no double-precision FPU). Two passes removed it:
-
-- **Horizontal box weights are precomputed once** (`build_hbox`, integer Q16
-  weights) instead of recomputed with `double` per source row, so `hreduce` is an
-  integer multiply-accumulate in the hot loop. Only the vertical geometry keeps a
-  few `double`s per *source row* (O(rows), negligible).
-- **Dither is integer** (`src/dither.cpp`): quantize is a 256-entry LUT, error
-  diffusion carries fixed-point (`<<8`) error in `int32` buffers, Bayer thresholds
-  are integers — no per-pixel `float`.
-- **No per-pixel divide in finalize/dither**: the box-average divide
-  (`vacc/vwsum`) is a per-row reciprocal multiply, and power-of-two error-diffusion
-  divisors (FS=16 / Atkinson=8 / Sierra=32) use a shift.
+- **decode** — `imgf_decoder_next_row` (entropy decode + the raw SD/file reads).
+- **color+down** — `imgf_recolor` (front+back) + `imgf_resizer`.
+- **dither** — finalize + `imgf_dither` + `imgf_raw_encoder` pack.
 
 ### Threading model (dual-core producer/consumer split)
 
-The decode runs on **two tasks** so the device's two cores work in parallel. The
-pipeline is cut after the decoder: the **producer** (JPEG/PNG entropy decode — the
-heavy, input-dependent half) and the **consumer** (box-downscale → color →
-dither → pack) run concurrently, connected by a small ring of source-row buffers.
+The decode runs on **two tasks** via `imgf_async`'s non-blocking job API so the
+device's two cores work in parallel and `DecodeJob` itself spawns no task of its
+own. The cut is after the decoder: the **producer** (JPEG/PNG entropy decode —
+the heavy, input-dependent half) publishes source rows into an `imgf_async` ring;
+the **consumer** (recolor → resize → dither → pack) drains them.
 
-- `decode_file_async(path, opts, task_priority, task_core)` creates the `imgjob`
-  task with the caller's `task_priority`/`task_core`. That task runs **the decode**
-  (the producer) — decode time swings widely with the image, so it keeps the
-  priority/core the caller controls. The color+dither **consumer** task
-  (`imgcons`) is spawned by `run_pipeline_dual` on the *other* core
-  (`1 - producer_core`) at the same priority.
-- The two are wired by `RowChan` (`src/pipeline.cpp`): an `nslots`-deep ring of
-  `sw*ch`-byte slots plus two counting semaphores (`free`/`filled`), a classic
-  bounded buffer. The producer writes each `next_row()` straight into a free slot
-  (zero-copy) and tags it with the source row index; a `-1` tag is the end
-  sentinel, `-2` a decode error. The ring is internal RAM (`img_alloc_internal`,
-  PSRAM fallback), sized to ~48 KiB (4–32 slots). When the consumer reaches the
-  last output row before the producer is done, it flags `consumer_done` and keeps
-  draining slots so the producer never blocks; the producer stops early on the
-  next iteration. Cancellation/`Truncated`/`OutOfMemory` propagate through the
-  tags and the shared `DecodeJob` status.
-- Profiling stays race-free because each `g_prof` field has a single writer:
-  the producer accumulates `decode/io/entropy/idct/post`, the consumer
-  `transform/dither`. Since the stages now overlap, the per-stage numbers sum to
-  **more** than `total` (that's the win) — `total` is the real wall clock.
+- `decode_file_async(path, opts, task_priority, task_core)` builds a `DecodeJob`
+  and calls `DecodeJob::start()` → `async_decode_start` (`src/pipeline.cpp`),
+  which **synchronously on the caller** opens the file/decoder and allocates the
+  output (Option A — cheap; the progress modal is already up), then
+  `imgf_async_start` spawns the producer (on the caller's core/priority — decode
+  time swings widely with the image) and the consumer (on the other core) and
+  returns immediately. `task_core`/`priority` of `-1` means the core not running
+  the caller / the caller's priority.
+- `DecodeJob`'s polling accessors (`state()`/`progress_pct()`/`status()`/
+  `take_image()`) call a private `sync_()` that, once `imgf_async_job_done()` is
+  true, calls `imgf_async_job_join()` to reclaim the job, aggregate the status,
+  and move the image out. Dropping the `shared_ptr` mid-decode cancels + joins in
+  `~DecodeJob`, so the worker tasks never outlive the job's `Progress`.
+- The `Consumer` struct (`src/pipeline.cpp`) owns the output buffer + the imgf
+  module handles and is shared by the serial and async paths, so they can't drift.
+  The consumer keeps draining the ring past the last output row so the producer
+  never blocks; cancellation/`Truncated`/`OutOfMemory` propagate through the ring
+  abort + the aggregated `DecodeJob` status.
+- Each profiling field has a single writer (producer: `decode`; consumer:
+  `transform`/`dither`), so the overlapping stages don't race `g_prof`. Since they
+  overlap, the per-stage numbers can sum to more than `total` — `total` is the
+  real wall clock.
 
-`run_pipeline` runs everything on one task (`run_pipeline_serial`) unless handed a
-`ParallelCfg`; the consumer state lives in `PipelineCore`, shared by both paths so
-they can't drift. The `IMGPROC_ASYNC` macro (default on; host unit tests build
-`-DIMGPROC_ASYNC=0`) gates **both** the `DecodeJob` task and the dual split — with
-it off, `decode_file_async` and `run_pipeline` are fully synchronous and serial.
-FreeRTOS comes from ESP-IDF on device and `idf_compat` (pthread-backed) in the
-simulator (so the simulator exercises the real dual-task code path).
-
-An earlier two-stage pipeline was once removed because, with a live progress UI,
-three CPU-heavy things (producer, consumer, UI/EPD) landed on two cores and the
-EPD refreshes preempted a decode core. The progress bar now refreshes at most once
-a second, and the EPD-refresh task structure has changed since; if a future
-regression points back here, that contention is the first place to look. The JPEG
-band still goes to internal RAM and the SD window is 32 KiB to keep PSRAM traffic
-down.
-
-## Known optimization opportunities (not yet done)
-
-- JPEG 1/2 and 1/4 run the full AAN IDCT then box-reduce; a true reduced IDCT
-  (4×4 / 2×2 directly) would cut CPU further. 1/8 and AC-free blocks already skip it.
-- JPEG entropy still reads input a byte at a time (FF-stuffing makes block-buffering
-  fiddly); PNG `inflate` already pulls input a block at a time (`ByteSource::refill`).
-- PNG `unfilter` is branch-hoisted per scanline; JPEG YCbCr assembly upsamples
-  chroma with precomputed shifts (no per-pixel divide).
-- LVGL's bundled lodepng/tjpgd and the device `espressif__zlib` managed dependency
-  are no longer used by NameCard and can be dropped once nothing else needs them.
+The `IMGPROC_ASYNC` macro (default on; host unit tests build `-DIMGPROC_ASYNC=0`)
+gates the async path — with it off, `decode_file_async` decodes synchronously and
+serially via `decode_file`. If `imgf_async_start` can't spawn the tasks,
+`DecodeJob::start()` also falls back to the synchronous serial decode. FreeRTOS
+comes from ESP-IDF on device; `imgf_async` uses pthreads on the host/simulator, so
+the host tests (`run.sh` builds both `IMGPROC_ASYNC=0` and `=1`) exercise the real
+two-task path.
 
 ## Testing
 
-Host unit tests (`test/run.sh`, g++, no ESP-IDF) cover the allocator, stream,
-sniff/size-guard, the full pipeline against synthetic `RowSource`s (luma ordering,
-linear-vs-perceptual averaging, error-diffusion mean preservation, pack formats),
-and both decoders against real fixtures. PNG fixtures are generated with the
-stdlib zlib (`gen_fixtures.py`), JPEG fixtures with libjpeg (`gen_jpeg.c`);
-regenerate per the header comment in each. End-to-end display is checked headless
-via `simulator/verify/namecard.txt`. See [`testing.md`](testing.md).
+Host unit tests (`test/run.sh`, g++, no ESP-IDF) compile the imgf C sources and
+link them with the C++ orchestration, then exercise the **public API end-to-end**:
+container sniffing, the full decode→recolor→resize→dither→pack path, the option
+surface (target/fit/levels/out/invert), the size guard, sub-range decode, and the
+async job. The per-stage internals (decoders, recolor luma/gamma ordering, resize,
+dither, pack) have their own white-box tests in
+`esp-devkit/libs/image_framework/test/run.sh`. End-to-end display is checked
+headless via `simulator/verify/namecard.txt`. See [`testing.md`](testing.md).

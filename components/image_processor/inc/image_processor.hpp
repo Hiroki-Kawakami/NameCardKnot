@@ -151,45 +151,57 @@ Status decode_buffer(const void *data, size_t len, const Options &opts, Image &o
 
 // ---- Async ------------------------------------------------------------------
 
-// Background decode job. Poll progress_pct()/state() from the UI loop; on
-// State::Ok call take_image(). cancel() requests an abort (the caller should keep
-// its modal up until state() becomes Cancelled). Refcounted via shared_ptr, and
-// the worker holds its own ref, so the job stays alive until the decode finishes
-// even if the app drops its handle.
+struct AsyncDecode;  // imgf_async-backed background decode (pipeline.cpp)
+
+// Background decode job built on imgf_async (two tasks: decode + color/dither).
+// Poll progress_pct()/state() from the UI loop; on State::Ok call take_image().
+// cancel() requests an abort (the caller should keep its modal up until state()
+// becomes Cancelled). The polling accessors reclaim the imgf_async job once both
+// tasks finish; dropping the shared_ptr mid-decode cancels + joins in the dtor
+// (so the worker tasks never outlive the job and its Progress).
 class DecodeJob {
 public:
     enum class State { Running, Ok, Failed, Cancelled };
 
-    // internal: use decode_file_async. consumer_core/prio configure the second
-    // (color+dither) task; the decode runs on whatever task calls run().
+    // internal: use decode_file_async. producer_core/prio run the decode,
+    // consumer_core/prio the color+dither half (both spawned by imgf_async).
     // offset/length restrict decoding to a file sub-range (length 0 = to EOF).
-    DecodeJob(const char *path, const Options &opts, int consumer_core = -1,
-              int consumer_prio = -1, uint32_t offset = 0, uint32_t length = 0);
+    DecodeJob(const char *path, const Options &opts, int producer_core = -1,
+              int producer_prio = -1, int consumer_core = -1, int consumer_prio = -1,
+              uint32_t offset = 0, uint32_t length = 0);
+    ~DecodeJob();
 
     int    progress_pct() const;
-    State  state() const { return state_.load(); }
-    Status status() const { return status_.load(); }
+    State  state() const;
+    Status status() const;
     Image  take_image();  // move the result out (after State::Ok, on the UI thread)
     void   cancel() { prog_.cancel.store(true); }
 
-    void run();  // internal: runs the decode synchronously on the worker
+    void start();  // internal: begins the decode (async, or synchronous fallback)
+    void run();    // internal: runs the decode synchronously on the calling task
 
 private:
+    void sync_() const;  // reclaim the imgf_async job once both tasks finish
+
     Progress prog_;
-    std::atomic<State>  state_{State::Running};
-    std::atomic<Status> status_{Status::Ok};
-    Image image_;
+    mutable std::atomic<State>  state_{State::Running};
+    mutable std::atomic<Status> status_{Status::Ok};
+    mutable Image image_;
+    mutable AsyncDecode *async_ = nullptr;
     std::string path_;
     Options opts_;
+    int producer_core_;
+    int producer_prio_;
     int consumer_core_;
     int consumer_prio_;
     uint32_t offset_;
     uint32_t length_;
 };
 
-// Starts a background decode (a FreeRTOS task) and returns the job immediately;
-// runs synchronously when built without FreeRTOS (host unit tests). task_priority
-// / task_core default to -1 = the caller's priority and the core not running it.
+// Starts a background decode (two imgf_async tasks) and returns the job
+// immediately; runs synchronously when built without FreeRTOS (host unit tests).
+// task_priority / task_core default to -1 = the caller's priority and the core
+// not running it.
 std::shared_ptr<DecodeJob> decode_file_async(const char *path, const Options &opts,
                                              int task_priority = -1, int task_core = -1,
                                              uint32_t offset = 0, uint32_t length = 0);

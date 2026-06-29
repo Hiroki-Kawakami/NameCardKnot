@@ -18,10 +18,11 @@ decoupled reader task (`bsp_config.touch`) that **pushes** each sample to
 the pushed coords itself (see [`docs/gotchas.md`](docs/gotchas.md)). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
 binding, and **SD-card access is in** (`bsp_sd_*`: FAT-over-SDSPI on device, a
-host-directory redirect in the simulator). The name-card image path uses an
-**in-tree, dependency-free `image_processor`** (JPEG/PNG decode → grayscale →
-dither → EPD-ready L8). The app is a small screen set (home, SD file browser,
-name card).
+host-directory redirect in the simulator). The name-card image path uses
+**`components/image_processor`** (JPEG/PNG decode → grayscale → dither →
+EPD-ready L8), now **pure orchestration over the reusable C `image_framework`**
+library (`esp-devkit/libs/image_framework`) that holds the actual primitives. The
+app is a small screen set (home, SD file browser, name card).
 
 > **Keep the docs current.** When you change the build flow, the BSP surface
 > (`bsp_*`), the simulator backend, add a board/target, or hit a non-obvious
@@ -73,10 +74,10 @@ app/                  # SHARED app logic (NameCardKnot.cpp: app_entry + the BSP<
   resources/          #   generated LVGL assets (resources.{c,h} aggregates them into `R`); see below
   lv_image_adapter.hpp #  imgproc::Image -> lv_image_dsc_t (keeps image_processor LVGL-free)
 components/           # APP-specific reusable components (container; each subdir is a component)
-  image_processor/    #   self-contained JPEG/PNG decode -> grayscale/dither -> L8/I4/I1 → docs/image_processor.md
+  image_processor/    #   JPEG/PNG decode -> grayscale/dither -> L8/I4/I1; orchestration over image_framework → docs/image_processor.md
     inc/              #     public API: image_processor.hpp (Options/Image/Status/decode_*)
-    src/              #     pipeline + in-tree decoders (inflate, png, baseline jpeg); no external deps
-    test/             #     host unit tests (run.sh, g++) + fixture generators (gen_fixtures.py, gen_jpeg.c)
+    src/              #     pipeline (maps Options→imgf opts) + orchestration + async DecodeJob; no decoders/dither/pack of its own
+    test/             #     host unit tests (run.sh links the imgf C sources, g++)
   namecard_pdf/       #   parse the editor's container PDF (NCK footer index) + write share-only PDF → docs/namecard_pdf.md
     inc/src/          #     public API: namecard_pdf.hpp (parse_buffer/open_file/read_asset/write_share_pdf/parse_name_glyphs); LVGL-free, dep-free
     test/             #     host tests (run.sh, run_e2e.sh→image_processor) against TS golden fixtures/ (manifest.h)
@@ -102,6 +103,9 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     inc/              #     lvgl.hpp (lvgl++ helpers + lvgl_port shim decl) + screen{,_manager}.hpp + widgets/ (layout.hpp)
     src/              #     lvgl.cpp (sim lvgl_port_init/lvgl_sim_loop shim), screen_manager.cpp
     sim/lv_conf.h     #     default LVGL config for the simulator build (overridable)
+  libs/image_framework/ # reusable dep-free C image library (imgf_*): decode/resize/recolor/dither/encode/async/alloc/stream/sniff
+    inc/src/          #     public API: imgf_*.h; in-tree baseline-JPEG/PNG decoders, JPEG encoder, box/bilinear resizer, recolor (luma/gamma)
+    test/             #     host unit tests (run.sh, gcc C11)
 ```
 
 Rule of thumb: panel/board-reusable → `esp-devkit/` (the submodule); app-specific
@@ -123,17 +127,19 @@ library: its simulator branch `FetchContent`s LVGL and links it onto the
 
 On **device**, each build root (`esp32s3/CMakeLists.txt`, `esp32/CMakeLists.txt`)
 lists `../components` (a *container* — each subdir is a component, so new
-components there are auto-discovered, no edit needed), `../esp-devkit/bsp`, and
-`../esp-devkit/ui_framework` in `EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness`
-are host-only), and sets `BSP_BOARD` (a cache var, `paper_s3` / `paper`) *before*
-`project()` to pick the board. Any component that `#include`s `bsp.h` must name
-`bsp` in its `REQUIRES` (e.g. `app/CMakeLists.txt`, which also names
-`ui_framework` and `image_processor`).
-(`image_processor` is in `SIMULATOR_COMPONENTS` for the host build; its device
-requirements are the always-present `heap` for `heap_caps_*`, `esp_timer` for the
-`IMGPROC_PROFILE` stage timing, and `freertos` for the `IMGPROC_ASYNC` decode task
-(`DecodeJob`) — the simulator gets FreeRTOS from `idf_compat`, the host unit tests
-build both off.) The bsp component's per-target source list, include dirs, and
+components there are auto-discovered, no edit needed), `../esp-devkit/bsp`,
+`../esp-devkit/ui_framework`, and `../esp-devkit/libs/image_framework` in
+`EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness` are host-only), and sets
+`BSP_BOARD` (a cache var, `paper_s3` / `paper`) *before* `project()` to pick the
+board. Any component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES`
+(e.g. `app/CMakeLists.txt`, which also names `ui_framework` and `image_processor`).
+(`image_processor` + `image_framework` are both in `SIMULATOR_COMPONENTS` for the
+host build; `image_processor` names `image_framework` in its `PRIV_REQUIRES`. Its
+other device requirements are `esp_timer` for the `IMGPROC_PROFILE` stage timing
+and `freertos` for the `IMGPROC_ASYNC` `imgjob` task (`DecodeJob`); `image_framework`
+itself requires `heap` for `heap_caps_*` + `freertos` for `imgf_async` — the
+simulator gets FreeRTOS from `idf_compat`/pthreads, the host unit tests build the
+async path off.) The bsp component's per-target source list, include dirs, and
 `PRIV_REQUIRES` are *not* hard-coded in `bsp/CMakeLists.txt`: it `include()`s the
 selected board's `boards/<board>/board.cmake`, which fills `BOARD_DEVICE_SRCS` /
 `BOARD_DEVICE_PRIV_INCLUDE_DIRS` / `BOARD_DEVICE_PRIV_REQUIRES` (device) and
@@ -394,28 +400,29 @@ Resources R` that app code reads (`R.icon.*`, `R.font.*`). `Lucide_License.txt` 
 the ISC license for the icon set. All of `app/` is GLOB'd into the build, so new
 files are picked up after a cmake re-run (see `app/CMakeLists.txt`).
 
-## Image processing — `components/image_processor`
+## Image processing — `components/image_processor` over `esp-devkit/libs/image_framework`
 
-Self-contained, **LVGL-free and dependency-free** library that turns an SD/buffer
-JPEG or PNG into an EPD-ready buffer. One streaming pipeline (`run_pipeline`):
-in-tree decoder (`RowSource`) → box downscale → color convert (linearize → Rec709
-luma → gamma) → dither (Bayer / error-diffusion, 2 or 16 levels) → pack
-(L8 high-nibble = EPD gray / I4 / I1). It streams row-by-row, never materializing
-the full-resolution source, so large images no longer OOM silently — they return a
-`Status`. The app uses the async `imgproc::decode_file_async` → `DecodeJob`, which
-runs the decode across **both cores** — a producer task (the entropy decode, on the
-caller's `task_priority`/`task_core`) feeds a consumer task (color+downscale+dither,
-on the other core) through a source-row ring — polled for progress/cancel
-(`decode_file`/`decode_buffer` are the synchronous, serial forms); the BSP↔LVGL-style binding
-to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`, keeping the component
-panel-/UI-agnostic. Threading model: [`docs/image_processor.md`](docs/image_processor.md).
+The actual image-processing primitives live in the reusable, **LVGL-free and
+dependency-free C** library `esp-devkit/libs/image_framework` (`imgf_*`): in-tree
+baseline-JPEG/PNG decoders (+ a JPEG encoder), a box/bilinear `imgf_resizer`,
+`imgf_recolor` (linearize → Rec709/601/avg/custom luma → sRGB/power/EPD-LUT gamma +
+invert), `imgf_dither` (Bayer / error diffusion), `imgf_raw_encoder` (L8/I4/I1),
+the `imgf_async` two-task pipeline runner, and `imgf_alloc`/`imgf_stream`/
+`imgf_sniff`. Each is host unit-tested in `libs/image_framework/test/run.sh` (gcc,
+C11).
 
-Both decoders are written in-tree (no zlib/libjpeg/lodepng): a pull-based
-streaming `inflate` for PNG and a baseline-only JPEG decoder that downscales while
-decoding (1/1..1/8). The SoC-free pipeline + decoders are host unit-tested via
-`components/image_processor/test/run.sh` (g++, no ESP-IDF), with fixtures built by
-`gen_fixtures.py` (PNG, stdlib zlib) and `gen_jpeg.c` (JPEG, libjpeg). Design
-detail, option semantics, and trade-offs: [`docs/image_processor.md`](docs/image_processor.md).
+`components/image_processor` is now the **EPD-specific orchestration** on top:
+`src/pipeline.cpp` maps `Options` onto the imgf module options and streams an
+opened decoder through `imgf_recolor` (front) → `imgf_resizer` (Gray8 downscale) →
+`imgf_recolor` (finalize) → `imgf_dither` → `imgf_raw_encoder`. The non-obvious bit
+is that **recolor straddles the resizer** so the box average stays in linear light
+(the resizer is geometry-only Gray8→Gray8). It still owns the public C++ API
+(`imgproc::Options/Image/Status/decode_*`) and the async `decode_file_async` →
+`DecodeJob` (producer = decode, consumer = color+dither, split via `imgf_async`);
+the binding to `lv_image_dsc_t` lives in `app/lv_image_adapter.hpp`. Host tests
+(`components/image_processor/test/run.sh`) link the imgf C sources and cover the
+public API end-to-end. Design detail, the recolor straddle, and the option surface:
+[`docs/image_processor.md`](docs/image_processor.md).
 
 ## Name-card container PDF — `editor/` (writer) + `components/namecard_pdf` (reader)
 

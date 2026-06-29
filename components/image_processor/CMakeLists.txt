@@ -1,7 +1,7 @@
-# image_processor — self-contained JPEG/PNG decode + grayscale/dither pipeline
-# for the EPD panel. No external dependencies: the baseline-JPEG and PNG
-# decoders (inflate included) are in-tree, and the component is LVGL-free — it
-# outputs a plain buffer the app wraps into an lv_image_dsc_t.
+# image_processor — JPEG/PNG decode -> grayscale/dither pipeline for the EPD
+# panel. Pure orchestration over esp-devkit/libs/image_framework (decode,
+# resize, recolor, dither, pack, async); LVGL-free — it outputs a plain buffer
+# the app wraps into an lv_image_dsc_t.
 #
 # Same sources build for both targets: on device via EXTRA_COMPONENT_DIRS
 # (../components is a component container), on the host via the
@@ -19,4 +19,6 @@ idf_component_register(
     SRCS ${IMAGE_PROCESSOR_SRCS}
     INCLUDE_DIRS "inc"
     PRIV_INCLUDE_DIRS "src"
-    PRIV_REQUIRES esp_timer freertos)  # esp_timer (IMGPROC_PROFILE) + freertos (IMGPROC_ASYNC)
+    # image_framework (decode/resize/recolor/dither/pack/async), esp_timer
+    # (IMGPROC_PROFILE), freertos (reads core/prio to configure imgf_async).
+    PRIV_REQUIRES image_framework esp_timer freertos)
