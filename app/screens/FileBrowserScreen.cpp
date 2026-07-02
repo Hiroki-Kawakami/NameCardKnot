@@ -235,7 +235,7 @@ void FileBrowserScreen::open(int index) {
         if (!ends_with(e.name, ".mnc.pdf")) return;
         loader_ = ImportJob::start(path, dw, dh);
         onLoaded_ = [] {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             screen_manager.pop();  // back to Home; onAppear reflects the new card
         };
         openProgress();
@@ -252,7 +252,7 @@ void FileBrowserScreen::open(int index) {
         auto data = NameCardData::load(path, opts);
         loader_ = data;
         onLoaded_ = [this, data] {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             screen_manager.push(std::make_shared<NameCardScreen>(data));
         };
         openProgress();

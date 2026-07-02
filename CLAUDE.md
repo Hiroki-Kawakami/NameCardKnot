@@ -8,9 +8,10 @@ Two boards are supported, selected per build target (no runtime detection):
 UI/app logic can be developed and verified without hardware. The BSP display +
 simulator + sim harness are in place, and the **device EPD + touch paths are
 implemented**: on `paper_s3` the ED047TC1 panel over the ESP32-S3 i80 bus is a
-transaction-index waveform engine driving up to 15 concurrent refresh
-generations on an async background task, with a `BSP_EPD_MODE_FULL` flag for
-ghost-clear full flushes; on `paper` the IT8951E TCON is driven over SPI
+per-pixel waveform engine (each pixel replays its own from×to waveform on an
+async background task; in-flight waveforms are never interrupted — conflicting
+draws block), with a `BSP_EPD_MODE_ALL` flag for ghost-clear area flushes and a
+separate `bsp_display_clear()`; on `paper` the IT8951E TCON is driven over SPI
 (synchronous load-image + display, no async task). Both use the in-tree `gt911`
 I2C touch driver: `bsp_touch_read` polls by default, or the app spawns a
 decoupled reader task (`bsp_config.touch`) that **pushes** each sample to
@@ -94,7 +95,7 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     inc_private/      #     internal vtables: bsp_display.h, bsp_touch.h
     src/              #     shared dispatch: bsp_display.c, bsp_touch.c
     devices/          #     DEVICE chip drivers: ed047tc1 (i80 EPD descriptor) + it8951e (SPI EPD: driver + it8951e_epd bsp_display provider) + gt911 (I2C touch) + bm8563 (I2C RTC)
-    driver/           #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free transaction-index core, host-tested) + test/
+    driver/epd/       #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free per-pixel core, host-tested) + epd_waveform_lut.h (LUT authoring macros) + test/
     simulator/        #     SIM SDL backend: sdl_panel.{c,h}
     boards/<board>/   #     per-board bring-up + board.cmake (source/requirement lists); paper_s3 (ED047TC1) and paper (IT8951E, shared EPD/SD SPI bus, paper_config.h)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
@@ -184,22 +185,33 @@ implement the public API once by dispatching through the active vtable.
 ### Panel types & the EPD model
 
 `bsp_display_type_t`: `SPI`, `MIPI_DSI`, `SPI_EPD`, `DIRECT_EPD`. EPD refresh
-(`bsp_epd_mode_t` = `NONE`/`FAST`/`QUALITY`):
+(`bsp_epd_mode_t` = `NONE`/`FAST`/`QUALITY`, OR-able `BSP_EPD_MODE_ALL`):
 
 - `set_epd_mode(mode)` sets a **persistent** mode. `draw_bitmap` updates GRAM but
   only paints the panel when the mode is **not** `NONE`.
-- `refresh(area, mode)` paints the latest GRAM with a one-shot mode (does not
-  change the persistent mode).
+- `refresh(area, mode)` paints the latest GRAM **of `area`** with a one-shot mode
+  (does not change the persistent mode). `BSP_EPD_MODE_ALL` drives every pixel of
+  the area, diff or not — the ghost clear.
+- `clear()` (`bsp_display_clear`) blanks the whole panel to white — the
+  known-baseline reset (not a refresh mode).
 
 (Consequence: a draw alone shows nothing on EPD — see [`docs/gotchas.md`](docs/gotchas.md).)
 
-Below this seam the device driver (`driver/epd_ll.c`) is a **transaction-index
-waveform engine**: one byte per pixel (`[7:4]=gray, [3:0]=tx id`), the diff-skip
-done at draw time, up to 15 generations driving concurrently on the async task,
-`FULL`/`CLEAR` aborting all in-flight. Its SoC-free core (`driver/epd_waveform.h`)
-is host unit-tested via `esp-devkit/bsp/driver/test/run.sh`. Details + the single-buffer trade-offs:
-[`docs/gotchas.md`](docs/gotchas.md). The simulator's `sdl_panel` EPD path replays
-no waveform, so none of the engine is observable there — verify on hardware.
+Below this seam the device driver (`driver/epd/epd_ll.c`) is a **per-pixel
+waveform engine**: one uint16 per pixel (confirmed gray, target gray, waveform
+id, start frame), the diff-skip done at draw time, every pixel replaying its own
+from×to×step waveform on the async task (no generation/slot limit). In-flight
+waveforms are **never interrupted** (DC-offset protection): a conflicting draw /
+ALL-refresh / clear **blocks the caller** until the pixels retire, with the
+skippable settle tails (`SETTLE` LUT frames) cut short to release it sooner —
+the clear waveform's `STOP` tail always runs, so clear-then-draw can't truncate
+the clear. Panel LUTs are `lut[steps][16]` authored with the
+`driver/epd/epd_waveform_lut.h` macros (`F` = by current gray, `T` = by target
+gray, ≤62 steps). The SoC-free core (`driver/epd/epd_waveform.h`) is host
+unit-tested via `esp-devkit/bsp/driver/epd/test/run.sh`. Details + blocking
+trade-offs: [`docs/gotchas.md`](docs/gotchas.md). The simulator's `sdl_panel`
+EPD path replays no waveform, so none of the engine is observable there —
+verify on hardware.
 
 ### Simulator backend (`bsp/simulator/sdl_panel.c`)
 

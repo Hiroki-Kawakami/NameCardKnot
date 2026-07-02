@@ -30,36 +30,48 @@ hit new ones.
   must call `bsp_display_refresh(area, mode)` (or `bsp_display_set_epd_mode(non-NONE)`
   first) to paint the panel. `paper_s3` is `DIRECT_EPD`, so its app draws then refreshes.
 - **The device EPD engine is invisible in the simulator.** On device, `epd_ll` is a
-  transaction-index waveform engine (pure core unit-tested via
-  `esp-devkit/bsp/driver/test/run.sh`):
-  one byte per pixel holds `[7:4]=gray, [3:0]=transaction id`; up to 15 generations
-  drive concurrently. The **diff-skip is done at draw time** — `draw_bitmap` compares
-  the new gray against the byte's current nibble and only stamps an id where they
-  differ (no second "displayed" buffer). `BSP_EPD_MODE_FULL` (OR'd in) aborts every
-  in-flight generation and drives the whole panel for a ghost-clearing flush. The
+  per-pixel waveform engine (pure core unit-tested via
+  `esp-devkit/bsp/driver/epd/test/run.sh`): one uint16 per pixel holds
+  `confirmed gray | target gray | waveform id | start frame`, so every pixel
+  replays its own from×to waveform independently — no generation slots, no
+  concurrency limit. The **diff-skip is done at draw time** — `draw_bitmap`
+  compares the new gray against the pixel's target and only stamps changed pixels
+  PENDING (no second "displayed" buffer); `refresh(area, mode)` arms the PENDING
+  pixels **inside `area`** (the rect is honored). `BSP_EPD_MODE_ALL` (OR'd in)
+  drives every pixel of the area, diff or not — idle pixels re-drive from==to,
+  the LUT diagonal, which is the ghost clear. `bsp_display_clear()` (a separate
+  op; CLEAR is no longer a refresh mode) blanks the whole panel to white. The
   `sdl_panel` EPD model replays no waveform — it just shows the latest framebuffer —
   so none of this is observable in the sim. Verify on hardware: only the changed
   region updates, disjoint regions can update in different phases at once, and a
-  periodic full QUALITY clears ghosting.
-- **`bsp_display_refresh` is async on the device EPD; the scan runs on a task.**
-  A partial `refresh` binds the open generation's waveform LUT and activates it
-  (O(1)), returning immediately; a pinned background task runs a continuous frame
-  loop while any generation is ACTIVE. **One framebuffer** (`state`) — no
-  gram/snapshot/disp. A single mutex guards every *write* to `state`/`tx`/`pending_id`
-  (the draw stamp, the LUT bind, the terminal id→0 reclaim) plus the short per-frame
-  action-table build — never the multi-row scan, which reads `state` lock-free (byte
-  reads are atomic). Consequences of the single buffer: (1) no frozen snapshot, so
-  **redrawing a pixel mid-flight with a *different* target interrupts its waveform**
-  (restarts under the new generation) — harmless, recovered next refresh, but a
-  transient artifact. Redrawing the *same* target gray (idle or in-flight) is
-  skipped in `epd_draw_pixel`, so a dirty box that overlaps unchanged in-flight
+  periodic QUALITY_ALL clears ghosting.
+- **An in-flight waveform is never interrupted — a conflicting call BLOCKS.**
+  Interrupting a waveform mid-replay unbalances the panel's DC offset, so the
+  engine refuses: `draw_bitmap` over a pixel mid-waveform toward a *different*
+  gray, `refresh(..., ALL)` over an area with any in-flight pixel, and
+  `bsp_display_clear()` while anything is in flight all **block the caller**
+  (the LVGL flush_cb included) until those pixels retire. To shorten the wait,
+  the engine skips waveforms' skippable settle tails (`SETTLE` frames, marked
+  `0xFFFFFFFF` — DC-neutral) while anyone is blocked; the clear waveform's tail
+  is `STOP` (all-zero, non-skippable), so a clear-then-draw sequence can never
+  cut the clear short. Redrawing the *same* target gray (idle or in-flight) is
+  skipped in `epd_draw_px`, so a dirty box that overlaps unchanged in-flight
   pixels (LVGL joins invalidated areas, so this is common) does **not** re-flash
-  them; (2) the **terminal reclaim is a separate locked pass, not folded into the
-  blit** (folding would write `state` during the lock-free scan and race the draw).
-  A generation activated mid-scan is left at frame 0 and rendered next frame
-  (`epd_frame_mark`'s active-mask gates `epd_frame_advance`), never advanced past
-  its own first frame. A `FULL`/`CLEAR` refresh subsumes concurrent draws — treat it
-  as a quiescent reset, not a mid-animation op. (The simulator path stays
+  or block on them. Don't design UI that redraws the same region faster than its
+  waveform (~0.3s QUALITY with settle skipped) — it will stall the UI task by
+  construction.
+- **`bsp_display_refresh` is async on the device EPD; the scan runs on a task.**
+  A non-ALL `refresh` arms the area's PENDING pixels and returns; a pinned
+  background task runs a continuous frame loop while any pixel is in flight.
+  **One framebuffer** (`state`) — no gram/snapshot/disp. A single mutex guards
+  every *write* to `state` and the counters (the draw stamp, the arming, the
+  retire pass) plus the short per-frame b1-table build — never the multi-row
+  scan, which reads `state` lock-free. The **retire pass is a separate locked
+  pass, not folded into the blit** (folding would write `state` during the
+  lock-free scan and race the draw). A pixel armed mid-scan carries
+  `start = frame + 1` and decodes as "armed" (step 63) for the rest of that
+  frame, so a torn frame can never skip a waveform's first step — hence LUTs are
+  capped at `EPD_WF_STEP_MAX` (62) frames. (The simulator path stays
   synchronous — this engine lives only in the device driver.)
 - **The i80 trans-done ISR must NOT share a core with the scan, or every scanline
   stalls ~50µs.** esp_lcd's `esp_lcd_panel_io_tx_color` ends by re-enabling the
@@ -195,7 +207,7 @@ hit new ones.
 
 - **An EPD draw alone still shows nothing.** `image_processor` only produces the
   L8 buffer; `NameCardScreen` relies on the normal flush → `bsp_display_refresh`
-  path (and `QUALITY_FULL` in `onAppear`) to paint it. Same EPD rule as everything
+  path (and `QUALITY_ALL` in `onAppear`) to paint it. Same EPD rule as everything
   else above.
 - **Dither at the display resolution, show 1:1.** Decode to the on-screen size
   (`target_w/h` = display resolution) and let `lv_image` show it without scaling.

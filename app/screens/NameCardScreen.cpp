@@ -33,7 +33,7 @@ void NameCardScreen::build() {
 }
 
 void NameCardScreen::onAppear() {
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
 }
 
 void NameCardScreen::openMenu() {
@@ -72,7 +72,7 @@ void NameCardScreen::openMenu() {
             button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [](lv_event_t*) {});
             lv_ver_separator_create(row1);
             button(row1, LUCIDE_INFO, "Info", [this, card](lv_event_t*) {
-                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
                 lv_async_call([this, card]() {
                     lv_modal_close(card);
                     openInfo();
@@ -87,14 +87,14 @@ void NameCardScreen::openMenu() {
         lv_obj_set_style_pad_column(row2, 10, 0);
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         button(row2, LUCIDE_HOME, "Home", [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             screen_manager.pop();
         });
         lv_ver_separator_create(row2);
         button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {});
         lv_ver_separator_create(row2);
         button(row2, LUCIDE_X, "Close", [card](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             lv_modal_close(card);
         });
     }
@@ -129,7 +129,7 @@ void NameCardScreen::openInfo() {
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         lv_modal_close(card);
     });
 }

@@ -152,6 +152,6 @@ void ShareScreen::onHotKnotDone() {
     start.accept = allow_return_data_;
     memcpy(start.descriptor, descriptor_, sizeof start.descriptor);
     start.own = data_;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_FULL);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     screen_manager.load(std::make_shared<TransferScreen>(std::move(start)));
 }
