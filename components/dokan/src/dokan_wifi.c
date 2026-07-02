@@ -96,7 +96,7 @@ static esp_err_t wifi_bringup(dokan_wifi_t *s) {
         size_t n = strlen(s->ssid);
         memcpy(wc.ap.ssid, s->ssid, n);
         wc.ap.ssid_len = (uint8_t)n;
-        strncpy((char *)wc.ap.password, s->psk, sizeof wc.ap.password - 1);
+        memcpy(wc.ap.password, s->psk, strnlen(s->psk, sizeof s->psk - 1));
         wc.ap.channel = s->p.channel;
         wc.ap.max_connection = 1;
         wc.ap.authmode = WIFI_AUTH_WPA2_PSK;
@@ -111,8 +111,8 @@ static esp_err_t wifi_bringup(dokan_wifi_t *s) {
         ip.netmask.addr = ipaddr_addr(DOKAN_WIFI_NETMASK);
         esp_netif_set_ip_info(s->netif, &ip);
         wifi_config_t wc = {0};
-        strncpy((char *)wc.sta.ssid, s->ssid, sizeof wc.sta.ssid - 1);
-        strncpy((char *)wc.sta.password, s->psk, sizeof wc.sta.password - 1);
+        memcpy(wc.sta.ssid, s->ssid, strnlen(s->ssid, sizeof wc.sta.ssid - 1));
+        memcpy(wc.sta.password, s->psk, strnlen(s->psk, sizeof s->psk - 1));
         wc.sta.channel = s->p.channel;
         wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
         if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) return ESP_FAIL;

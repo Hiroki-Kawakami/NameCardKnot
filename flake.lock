@@ -1,7 +1,9 @@
 {
   "nodes": {
-    "esp-dev": {
+    "esp-devkit": {
       "inputs": {
+        "esp-idf-beta-src": "esp-idf-beta-src",
+        "esp-idf-src": "esp-idf-src",
         "flake-utils": [
           "flake-utils"
         ],
@@ -10,17 +12,55 @@
         ]
       },
       "locked": {
-        "lastModified": 1767865407,
-        "narHash": "sha256-QWF1rZYd+HvNzLIeRS+OEBX7HF0EhWCGeLbMkgtbsIo=",
-        "owner": "mirrexagon",
-        "repo": "nixpkgs-esp-dev",
-        "rev": "5287d6e1ca9e15ebd5113c41b9590c468e1e001b",
-        "type": "github"
+        "lastModified": 1783013521,
+        "narHash": "sha256-KX+jqGueeIezqbBSZ6yKLc27VTwe71LUhw8SC6gPDX0=",
+        "ref": "refs/heads/main",
+        "rev": "94744699c13fdd66d86f032a470d93cc01b9e431",
+        "revCount": 77,
+        "type": "git",
+        "url": "file:./esp-devkit"
       },
       "original": {
-        "owner": "mirrexagon",
-        "repo": "nixpkgs-esp-dev",
-        "type": "github"
+        "type": "git",
+        "url": "file:./esp-devkit"
+      }
+    },
+    "esp-idf-beta-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782270947,
+        "narHash": "sha256-9sekwCKcwq4OsuuU0uvxwyGZEMihH1/FpCwQgewDgQY=",
+        "ref": "refs/tags/v6.1-beta1",
+        "rev": "b1d13e9fe441c4f75e240c98a26fd631b7b3232f",
+        "revCount": 52930,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/espressif/esp-idf"
+      },
+      "original": {
+        "ref": "refs/tags/v6.1-beta1",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/espressif/esp-idf"
+      }
+    },
+    "esp-idf-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781850517,
+        "narHash": "sha256-dVdJ+aUjMJyWoz+wOwA0R6XH3JRq0VBpC1sAH/aLECs=",
+        "ref": "refs/tags/v6.0.2",
+        "rev": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+        "revCount": 50774,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/espressif/esp-idf"
+      },
+      "original": {
+        "ref": "refs/tags/v6.0.2",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/espressif/esp-idf"
       }
     },
     "flake-utils": {
@@ -43,23 +83,23 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1781509190,
-        "narHash": "sha256-uJZs9Di8I6ciTp6jiojj0HzlNpBkud8ax5aT/O5aJkw=",
+        "lastModified": 1782847225,
+        "narHash": "sha256-JC9PjqKYG9ve5U8aDOLQipp3+KLANBHUvGdLZlxzdKI=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "d6df3513510aa548c83868fd22bfddd0a8c0a0d4",
+        "rev": "95ca1e203c0750115fd4a6f17d5a245dfe6b1edd",
         "type": "github"
       },
       "original": {
         "owner": "nixos",
-        "ref": "nixos-25.11",
+        "ref": "nixos-26.05",
         "repo": "nixpkgs",
         "type": "github"
       }
     },
     "root": {
       "inputs": {
-        "esp-dev": "esp-dev",
+        "esp-devkit": "esp-devkit",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs"
       }

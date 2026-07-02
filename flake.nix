@@ -2,52 +2,22 @@
   description = "ESP32 development environment";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
-    esp-dev = {
-      url = "github:mirrexagon/nixpkgs-esp-dev";
+    esp-devkit = {
+      url = "git+file:./esp-devkit";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, esp-dev }:
+  outputs = { self, nixpkgs, flake-utils, esp-devkit }:
     flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ esp-dev.overlays.default ];
-          config = {
-            permittedInsecurePackages = [
-              "python3.13-ecdsa-0.19.1"
-            ];
-          };
-        };
-        esp-idf = pkgs.esp-idf-full.override {
-          rev = "v5.4.3";
-          sha256 = "sha256-sV/eL3jRG9GdaQNByBypmH5ZKmZoOnWCEY1ABySIeac=";
-        };
+      let pkgs = import nixpkgs { inherit system; };
       in {
         devShells.default = pkgs.mkShell {
-          inputsFrom = [ esp-idf ];
-          packages = [
-            esp-idf
-            # Host simulator toolchain (simulator/)
-            pkgs.cmake
-            pkgs.ninja
-            pkgs.gcc
-            pkgs.ccache
-            pkgs.cjson
-            pkgs.SDL2
-            pkgs.libjpeg
-            pkgs.zlib
-            # Web editor SPA toolchain (editor/)
-            pkgs.nodejs_22
-          ];
-          shellHook = ''
-            export ESP_IDF_VERSION="5.4"
-            export HOST_GCC="${pkgs.gcc}"
-          '';
+          inputsFrom = [ esp-devkit.devShells.${system}.default ];
+          packages = [ pkgs.nodejs_22 ];  # editor/ 用に追加するだけ
         };
       }
     );
