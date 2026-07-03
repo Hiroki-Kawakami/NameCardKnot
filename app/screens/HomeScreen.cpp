@@ -101,17 +101,18 @@ void HomeScreen::onAppear() {
 }
 
 void HomeScreen::onDisappear() {
-    // Drop the MMIO-backed images before leaving: an import rewrites the
-    // partition, so no mapping over it may stay live.
+    // Drop the MMIO-backed image before leaving: an import rewrites the
+    // partition, so no mapping over it may stay live. The name font (which the
+    // just-cleaned label referenced) can go too.
     if (mycard_section_) lv_obj_clean(mycard_section_);
     preview_map_ = cardstore::MappedImage{};
-    name_map_ = cardstore::MappedImage{};
+    name_.reset();
 }
 
 void HomeScreen::importMyCard() {
     if (mycard_section_) lv_obj_clean(mycard_section_);
-    preview_map_ = cardstore::MappedImage{};  // release mappings before the rewrite
-    name_map_ = cardstore::MappedImage{};
+    preview_map_ = cardstore::MappedImage{};  // release the mapping before the rewrite
+    name_.reset();
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     screen_manager.push(std::make_shared<FileBrowserScreen>("/sdcard", FileBrowserScreen::Mode::ImportMyCard));
 }
@@ -120,7 +121,7 @@ void HomeScreen::refreshMyCard() {
     if (!mycard_section_) return;
     lv_obj_clean(mycard_section_);
     preview_map_ = cardstore::MappedImage{};
-    name_map_ = cardstore::MappedImage{};
+    name_.reset();
     if (cardstore::mycard().available())
         myCardButtonCreate(mycard_section_);
     else
@@ -160,11 +161,7 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
     lv_obj_set_style_pad_top(title, 20, 0);
     lv_spacer_create(container, 0, 0, 1);
 
-    name_map_ = cardstore::mycard().map_image(cardstore::BLOB_NAME);
-    if (l8view_fill_lv_dsc(name_map_.view(), name_dsc_)) {
-        auto name = lv_image_create(container);
-        lv_image_set_src(name, &name_dsc_);
-    }
+    if (name_.load_mycard(32)) name_.make_label(container);
 
     lv_spacer_create(container, 0, 0, 1);
 

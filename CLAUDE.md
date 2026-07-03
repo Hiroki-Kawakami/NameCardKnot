@@ -441,11 +441,12 @@ a permanent 2MB map starves the original ESP32's ~4MB DROM mmap window and hangs
 paper. Power-fail safety: erase → blob writes → commit, where commit appends the
 header to the next 128-byte slot of the header sector, so a Writer may commit
 per blob and an interrupted write keeps everything committed so far readable.
-`HomeScreen`'s My Card button uses the preview + name-raster blobs and opens via
+`HomeScreen`'s My Card button uses the preview blob and opens via
 `NameCardData::load_cached()`; the **Edit** button runs `FileBrowserScreen` in
 `Mode::ImportMyCard` (lists `.mnc.pdf` only), whose `ImportJob` (a `FileLoader`)
-decodes the caches and writes the partition. The name is rasterized offscreen
-(`app/NameRaster`, 48px L8 canvas → 32px) so Home needs no fonts. Full spec:
+decodes the caches and writes the partition. The name is drawn as a live
+`lv_label` from the stored PDF via `app/CardNameLabel` (over the `NameFont`
+chain), shared by Home and `SleepScreen`. Full spec:
 [`docs/mycard.md`](docs/mycard.md).
 
 **Idle power-off** is app policy in `app/Power.{hpp,cpp}`: a 1s LVGL watchdog

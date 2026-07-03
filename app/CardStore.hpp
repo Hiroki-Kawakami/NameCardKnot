@@ -37,7 +37,6 @@ enum BlobId : uint8_t {
     BLOB_PDF = 0,
     BLOB_DISPLAY,
     BLOB_PREVIEW,
-    BLOB_NAME,
     BLOB_COUNT,
 };
 

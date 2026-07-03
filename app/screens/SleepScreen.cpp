@@ -32,12 +32,8 @@ void SleepScreen::build() {
             lv_image_set_src(image, &preview_dsc_);
             lv_obj_set_style_pad_top(image, 20, 0);
         }
-        name_map_ = cardstore::mycard().map_image(cardstore::BLOB_NAME);
-        if (l8view_fill_lv_dsc(name_map_.view(), name_dsc_)) {
-            auto name = lv_image_create(root_);
-            lv_image_set_src(name, &name_dsc_);
-            lv_obj_set_style_pad_top(name, 20, 0);
-        }
+        if (name_.load_mycard(32))
+            lv_obj_set_style_pad_top(name_.make_label(root_), 20, 0);
     }
 
     lv_spacer_create(root_, 0, 0, 1);

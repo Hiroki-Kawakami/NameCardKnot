@@ -5,9 +5,7 @@
 
 #include "ImportJob.hpp"
 #include "CardStore.hpp"
-#include "NameRaster.hpp"
 #include "namecard_pdf.hpp"
-#include "lvgl.hpp"  // lv_lock/lv_unlock
 #include <cstdio>
 #include <vector>
 
@@ -74,7 +72,6 @@ void ImportJob::run() {
     if (nckpdf::parse_buffer(pdf.data(), pdf.size(), card) != nckpdf::Status::Ok) return fail();
     const nckpdf::Asset *disp = card.find(nckpdf::AssetType::DisplayJpeg);
     if (!disp) return fail();  // not a viewable .mnc.pdf
-    const nckpdf::Asset *glyph_a = card.find(nckpdf::AssetType::NameGlyphs);
 
     cardstore::Store::Writer w(cardstore::mycard());
     if (!w.begin()) return fail();
@@ -104,37 +101,13 @@ void ImportJob::run() {
         state_.store(prog_.cancel.load() ? State::Cancelled : State::Failed);
         return;
     }
-    if (!decode_to_blob(cardstore::BLOB_PREVIEW, 169, 300, 55, 30)) {
+    if (!decode_to_blob(cardstore::BLOB_PREVIEW, 169, 300, 55, 40)) {
         w.abort();
         state_.store(prog_.cancel.load() ? State::Cancelled : State::Failed);
         return;
     }
 
-    // (4) Name raster (LVGL canvas -> downscaled L8). Optional: an empty/failed
-    // raster just leaves the name blob absent (Home shows no name image).
-    set_phase(85, 0);
-    if (!card.name.empty()) {
-        nckpdf::GlyphSet gs;
-        const nckpdf::GlyphSet *gsp = nullptr;
-        if (glyph_a && glyph_a->length &&
-            nckpdf::parse_name_glyphs(pdf.data() + glyph_a->offset, glyph_a->length, gs) == nckpdf::Status::Ok)
-            gsp = &gs;
-        lv_lock();
-        NameRaster nr = render_name_l8(card.name.c_str(), gsp);
-        lv_unlock();
-        if (nr.valid()) {
-            cardstore::Blob meta{};
-            meta.w = nr.w;
-            meta.h = nr.h;
-            meta.stride = nr.stride;
-            meta.levels = nr.levels;
-            meta.format = cardstore::FMT_L8;
-            w.write_blob(cardstore::BLOB_NAME, nr.data.data(), (uint32_t)nr.data.size(), &meta);
-        }
-    }
-    if (cancelled()) { w.abort(); state_.store(State::Cancelled); return; }
-
-    // (5) Commit the magic header last.
+    // (4) Commit the magic header last.
     set_phase(100, 0);
     if (!w.commit()) return fail();
     state_.store(State::Ok);
