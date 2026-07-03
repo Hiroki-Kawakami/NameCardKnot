@@ -6,7 +6,7 @@
 #pragma once
 #include "screen_manager.hpp"
 #include "lvgl.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 
 // What the glass shows while powered off (non-card screens only; sleeping from
 // the card keeps the card). Tapping it recovers to Home — reachable only when
@@ -16,6 +16,6 @@ public:
     void build() override;
 
 private:
-    mycard::MappedImage preview_map_, name_map_;
+    cardstore::MappedImage preview_map_, name_map_;
     lv_image_dsc_t preview_dsc_{}, name_dsc_{};
 };

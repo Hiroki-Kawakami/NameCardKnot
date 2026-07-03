@@ -374,7 +374,9 @@ with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
 `lastcard`) records a card being displayed — My Card or an SD path, saved by
 `NameCardScreen::onAppear` and cleared when the user leaves it — it reopens
 `NameCardScreen` directly (power-off resume, no Home in between), else
-`HomeScreen`. Current screens:
+`HomeScreen`. An SD card restores from the lastcard flash cache when NVS `cpath`
+matches (`NameCardData::load_lastcard`: MMIO display blob, else a sync decode of
+the cached PDF — no SD needed), falling back to the SD file. Current screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
@@ -406,18 +408,22 @@ glyph supplement fallback chain built by `app/NameFont.hpp` (over the
 expansion; `NameCardData::name_glyphs()` parses/owns the blob). (Plain `.snc.pdf` —
 share-only, no display image — is not openable yet; a dedicated screen comes later.)
 
-**My Card** persists one chosen `.mnc.pdf` to a dedicated 2MB flash partition
-(`mycard`) so Home can open it instantly. No filesystem: `app/MyCardStore` lays the
-partition out as a custom blob index (full PDF + display/preview/name L8 caches).
-The header is read into RAM and the PDF copied out; only the image blob being shown
-is mmap'd on demand (a `MappedImage` RAII handle, unmapped on leave) — a permanent
-2MB map starves the original ESP32's ~4MB DROM mmap window and hangs paper.
+**Card flash storage** (`app/CardStore`): `cardstore::Store` manages a dedicated
+2MB partition as a custom blob index (PDF + L8 image caches), no filesystem. Two
+instances: `cardstore::mycard()` (the imported My Card: PDF + display/preview/name)
+and `cardstore::lastcard()` (the sleep-entry cache of the displayed card: PDF +
+display). The header is read into RAM and the PDF copied out; only the image blob
+being shown is mmap'd on demand (a `MappedImage` RAII handle, unmapped on leave) —
+a permanent 2MB map starves the original ESP32's ~4MB DROM mmap window and hangs
+paper. Power-fail safety: erase → blob writes → commit, where commit appends the
+header to the next 128-byte slot of the header sector, so a Writer may commit
+per blob and an interrupted write keeps everything committed so far readable.
 `HomeScreen`'s My Card button uses the preview + name-raster blobs and opens via
 `NameCardData::load_cached()`; the **Edit** button runs `FileBrowserScreen` in
 `Mode::ImportMyCard` (lists `.mnc.pdf` only), whose `ImportJob` (a `FileLoader`)
-decodes the caches and writes the partition (erase → blobs → magic header last, for
-power-fail safety). The name is rasterized offscreen (`app/NameRaster`, 48px L8
-canvas → 32px) so Home needs no fonts. Full spec: [`docs/mycard.md`](docs/mycard.md).
+decodes the caches and writes the partition. The name is rasterized offscreen
+(`app/NameRaster`, 48px L8 canvas → 32px) so Home needs no fonts. Full spec:
+[`docs/mycard.md`](docs/mycard.md).
 
 **Idle power-off** is app policy in `app/Power.{hpp,cpp}`: a 1s LVGL watchdog
 (started by `app_entry`) cuts VSYS via `bsp_power_off` after inactivity.
@@ -428,9 +434,11 @@ current with no modal → nothing drawn (the glass already shows the card);
 modal open → closed + restored QUALITY_ALL; NameCardScreen below the stack →
 popped back to (QUALITY, so the unchanged card diff-skips); otherwise
 `SleepScreen` (My Card preview + board-specific wake hint; tap → Home for the
-USB-powered case). Then SD unmount → `bsp_hotknot_end` → RTC timer stop →
-`bsp_display_wait_idle` → `bsp_power_off`; a failed power-off (USB keeps VSYS
-up) re-arms the countdown. The NVS lastcard record is untouched, so wake
+USB-powered case). Then `bsp_display_wait_idle` (park the EPD before flash
+writes) → `lastcard::save_cache` (cache the displayed card's PDF + L8 to the
+lastcard partition; skipped for My Card or an unchanged card) → SD unmount →
+`bsp_hotknot_end` → RTC timer stop → `bsp_power_off`; a failed power-off (USB
+keeps VSYS up) re-arms the countdown. The NVS lastcard record is untouched, so wake
 resumes to the right screen. The sim's `bsp_power_off` stays alive (ESP_FAIL,
 like USB); `SIMULATOR_SLEEP_TIMEOUT_MS` shortens every timeout for scripted
 verification.

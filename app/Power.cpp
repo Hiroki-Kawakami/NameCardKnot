@@ -5,6 +5,7 @@
 
 #include "Power.hpp"
 #include "NameCardKnot.hpp"
+#include "LastCard.hpp"
 #include "bsp.h"
 #include "lvgl.hpp"
 #include "screen_manager.hpp"
@@ -66,10 +67,11 @@ static void go_to_sleep() {
         lv_refr_now(NULL);
     }
 
+    bsp_display_wait_idle();   // park the EPD before flash writes stall the cache
+    lastcard::save_cache(s_card ? s_card->data() : nullptr);
     unmount_sd_card();
     bsp_hotknot_end();      // teardown belongs to the session's screen; this is a backstop
     bsp_rtc_timer_stop();   // a stale countdown would re-power the board
-    bsp_display_wait_idle();
     bsp_power_off();
 
     // Still here: USB keeps VSYS up. Stay on and retry after another full

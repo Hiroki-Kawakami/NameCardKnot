@@ -4,7 +4,7 @@
  */
 
 #include "NameCardData.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 
 #define NCD_TASK_PRIORITY 3
 #define NCD_TASK_CORE 1
@@ -43,28 +43,71 @@ std::shared_ptr<NameCardData> NameCardData::load(const std::string &path,
     return self;
 }
 
+// Parse pdf_ into card_ + the in-place glyph supplement (pdf_ outlives this).
+bool NameCardData::adopt_pdf() {
+    if (pdf_.empty() ||
+        nckpdf::parse_buffer(pdf_.data(), pdf_.size(), card_) != nckpdf::Status::Ok)
+        return false;
+    const nckpdf::Asset *a = card_.find(nckpdf::AssetType::NameGlyphs);
+    if (a && a->length && uint64_t(a->offset) + a->length <= pdf_.size() &&
+        nckpdf::parse_name_glyphs(pdf_.data() + a->offset, a->length, glyphs_) == nckpdf::Status::Ok)
+        has_glyphs_ = true;
+    return true;
+}
+
 std::shared_ptr<NameCardData> NameCardData::load_cached() {
-    using namespace mycard;
-    if (!Store::available()) return nullptr;
+    auto &st = cardstore::mycard();
+    if (!st.available()) return nullptr;
     auto self = std::shared_ptr<NameCardData>(new NameCardData());
     self->kind_ = Kind::Card;
 
-    // Metadata: copy the stored PDF into RAM and parse it (no decode). The glyph
-    // supplement, if any, is parsed in place from that copy (pdf_ outlives this).
-    uint32_t pdf_len = Store::blob_len(BLOB_PDF);
+    // Metadata: copy the stored PDF into RAM and parse it (no decode).
+    uint32_t pdf_len = st.blob_len(cardstore::BLOB_PDF);
     self->pdf_.resize(pdf_len);
-    if (pdf_len && Store::read_blob(BLOB_PDF, self->pdf_.data(), pdf_len) &&
-        nckpdf::parse_buffer(self->pdf_.data(), pdf_len, self->card_) == nckpdf::Status::Ok) {
-        const nckpdf::Asset *a = self->card_.find(nckpdf::AssetType::NameGlyphs);
-        if (a && a->length && uint64_t(a->offset) + a->length <= pdf_len &&
-            nckpdf::parse_name_glyphs(self->pdf_.data() + a->offset, a->length, self->glyphs_) == nckpdf::Status::Ok)
-            self->has_glyphs_ = true;
-    }
+    if (!pdf_len || !st.read_blob(cardstore::BLOB_PDF, self->pdf_.data(), pdf_len) ||
+        !self->adopt_pdf())
+        self->pdf_.clear();  // metadata unavailable; the mapped image may still show
 
     // Display image mapped on demand (held by display_map_ for this object's life).
-    self->display_map_ = Store::map_image(BLOB_DISPLAY);
+    self->display_map_ = st.map_image(cardstore::BLOB_DISPLAY);
     self->view_ = self->display_map_.view();
     self->state_ = self->view_.valid() ? State::Ok : State::Failed;
+    self->finalized_ = true;
+    return self;
+}
+
+std::shared_ptr<NameCardData> NameCardData::load_lastcard(const std::string &path,
+                                                          const imgproc::Options &opts) {
+    auto &st = cardstore::lastcard();
+    if (!st.mount() || !st.available()) return nullptr;
+
+    auto self = std::shared_ptr<NameCardData>(new NameCardData());
+    self->path_ = path;
+    self->kind_ = Kind::Image;
+
+    uint32_t pdf_len = st.blob_len(cardstore::BLOB_PDF);
+    if (pdf_len) {
+        self->pdf_.resize(pdf_len);
+        if (st.read_blob(cardstore::BLOB_PDF, self->pdf_.data(), pdf_len) && self->adopt_pdf())
+            self->kind_ = Kind::Card;
+        else
+            self->pdf_.clear();
+    }
+
+    self->display_map_ = st.map_image(cardstore::BLOB_DISPLAY);
+    self->view_ = self->display_map_.view();
+    if (!self->view_.valid()) {
+        // Display blob missing (write interrupted after the PDF commit): decode
+        // the cached PDF's display JPEG synchronously — boot has nothing else to do.
+        if (self->kind_ != Kind::Card) return nullptr;
+        const nckpdf::Asset *disp = self->card_.find(nckpdf::AssetType::DisplayJpeg);
+        if (!disp || uint64_t(disp->offset) + disp->length > self->pdf_.size()) return nullptr;
+        if (imgproc::decode_buffer(self->pdf_.data() + disp->offset, disp->length, opts,
+                                   self->image_) != imgproc::Status::Ok) return nullptr;
+        self->view_ = L8View{self->image_.data, self->image_.w, self->image_.h,
+                             static_cast<uint32_t>(self->image_.stride), self->image_.levels};
+    }
+    self->state_ = State::Ok;
     self->finalized_ = true;
     return self;
 }

@@ -14,7 +14,7 @@
 #include <assert.h>
 #include "HomeScreen.hpp"
 #include "NameCardScreen.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 #include "LastCard.hpp"
 #include "Power.hpp"
 
@@ -144,23 +144,30 @@ static void lvgl_init() {
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 }
 
-// Boot resume: reopen the card recorded in NVS, else start at Home. An SD
-// card decodes asynchronously — NameCardScreen polls the loader.
+// Boot resume: reopen the card recorded in NVS, else start at Home. An SD file
+// restores from the lastcard flash cache when it covers this path (no SD, no
+// decode), else falls back to the SD card (async decode; NameCardScreen polls).
 static std::shared_ptr<Screen> initial_screen() {
     const auto info = lastcard::load();
     if (info.source == lastcard::Source::MyCard) {
         if (auto data = NameCardData::load_cached())
             return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
         lastcard::clear();
-    } else if (info.source == lastcard::Source::SdFile && mount_sd_card()) {
+    } else if (info.source == lastcard::Source::SdFile) {
         lv_display_t *disp = lv_display_get_default();
         imgproc::Options opts;
         opts.target_w = lv_display_get_horizontal_resolution(disp);
         opts.target_h = lv_display_get_vertical_resolution(disp);
         opts.fit = imgproc::Fit::Contain;
         opts.levels = 16;
-        return std::make_shared<NameCardScreen>(NameCardData::load(info.path, opts),
-                                                NameCardScreen::Nav::Home);
+        if (lastcard::cache_path() == info.path) {
+            if (auto data = NameCardData::load_lastcard(info.path, opts))
+                return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
+        }
+        if (mount_sd_card()) {
+            return std::make_shared<NameCardScreen>(NameCardData::load(info.path, opts),
+                                                    NameCardScreen::Nav::Home);
+        }
     }
     return std::make_shared<HomeScreen>();
 }
@@ -189,7 +196,7 @@ void app_entry() {
     bsp_display_clear();   // bring-up doesn't clear
     bsp_rtc_timer_stop();
     lvgl_init();
-    mycard::Store::mount();
+    cardstore::mycard().mount();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](){

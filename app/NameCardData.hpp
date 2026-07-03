@@ -6,7 +6,7 @@
 #pragma once
 #include "FileLoader.hpp"
 #include "L8View.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 #include "SharedCardData.hpp"
 #include "image_processor.hpp"
 #include "namecard_pdf.hpp"
@@ -28,6 +28,13 @@ public:
     // display image is viewed straight from MMIO and metadata is parsed from the
     // mapped PDF. Returns nullptr when no card is stored. State is Ok at once.
     static std::shared_ptr<NameCardData> load_cached();
+
+    // Build from the lastcard flash cache written at sleep entry: MMIO display
+    // image when cached, else a synchronous decode of the cached PDF's display
+    // JPEG. Returns nullptr when the cache is unusable (caller falls back to
+    // SD). The caller checks the cache matches `path` (lastcard::cache_path()).
+    static std::shared_ptr<NameCardData> load_lastcard(const std::string &path,
+                                                       const imgproc::Options &opts);
 
     ~NameCardData();
     NameCardData(const NameCardData &) = delete;
@@ -65,6 +72,7 @@ private:
     NameCardData() = default;
     void finalize() const;  // pull the image out of the worker once it is terminal
     void load_name_glyphs();
+    bool adopt_pdf();       // parse pdf_ into card_ + glyphs
 
     Kind kind_ = Kind::Image;
     std::string path_;
@@ -73,7 +81,7 @@ private:
     nckpdf::GlyphSet glyphs_;
     bool has_glyphs_ = false;
     std::vector<uint8_t> pdf_;            // cached card: the PDF copy (glyphs_ point in)
-    mycard::MappedImage display_map_;     // cached card: MMIO display image (view_ points in)
+    cardstore::MappedImage display_map_;  // cached card: MMIO display image (view_ points in)
     std::shared_ptr<imgproc::DecodeJob> job_;
     mutable imgproc::Image image_;
     mutable L8View view_;  // display image as L8 (image_ for SD, mmap for cached)

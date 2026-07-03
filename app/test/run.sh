@@ -20,7 +20,7 @@ for c in "$IMGF"/src/*.c; do
         -o "$OUT/$(basename "${c%.c}").o"
 done
 
-SRCS="$APP/NameCardData.cpp $APP/MyCardStore.cpp $APP/SharedCardData.cpp $(find "$NCK/src" -name '*.cpp') $(find "$IMG/src" -name '*.cpp')"
+SRCS="$APP/NameCardData.cpp $APP/CardStore.cpp $APP/SharedCardData.cpp $(find "$NCK/src" -name '*.cpp') $(find "$IMG/src" -name '*.cpp')"
 
 g++ -std=c++17 -Wall -Wextra -O2 -DIMGPROC_ASYNC=0 -DIMGPROC_PROFILE=0 \
     -I "$APP" -I "$NCK/inc" -I "$IMG/inc" -I "$IMG/src" -I "$IMGF/inc" \

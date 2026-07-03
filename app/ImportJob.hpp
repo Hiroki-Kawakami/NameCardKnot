@@ -11,7 +11,7 @@
 #include <string>
 
 // Imports a .mnc.pdf into the My Card flash partition: stores the full PDF and
-// the decoded display/preview/name caches (see MyCardStore). A FileLoader, so it
+// the decoded display/preview/name caches (see CardStore). A FileLoader, so it
 // drops straight into FileBrowserScreen's progress modal + poll loop. Runs on
 // its own worker task (the worker holds a shared_ptr ref, so the job outlives a
 // dropped handle, like imgproc::DecodeJob). The only LVGL-touching step (the

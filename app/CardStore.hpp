@@ -8,10 +8,11 @@
 #include <cstddef>
 #include <cstdint>
 
-// MyCardStore: the persisted "My Card" living in a dedicated 2MB flash
-// partition ("mycard"), managed as a single custom binary layout (no
-// filesystem). The display/preview/name caches are stored as raw L8 and can be
-// shown straight from memory-mapped flash (MMIO) with no RAM copy.
+// CardStore: a card persisted in a dedicated 2MB flash partition, managed as a
+// single custom binary layout (no filesystem). Image blobs are raw L8 shown
+// straight from memory-mapped flash (MMIO) with no RAM copy. Two instances:
+// mycard() (the imported My Card) and lastcard() (the sleep-entry cache of the
+// displayed card: PDF + decoded display image).
 //
 // The partition is NOT mapped wholesale: on the original ESP32 the ~4MB DROM
 // mmap window is mostly taken by .rodata, so a permanent 2MB map starves it and
@@ -20,17 +21,17 @@
 // a MappedImage handle that unmaps on destruction (see docs/mycard.md).
 //
 // Layout (offsets from the partition start):
-//   0x0000  Header (magic + per-blob index), within the first 4KB sector
-//   0x1000  Pdf      (the full .mnc.pdf, byte copy)
-//   ...     Display  (540x960 L8)   sector-aligned
-//   ...     Preview  (169x300 L8)   sector-aligned
-//   ...     Name     (32px L8)      sector-aligned
+//   0x0000  Header slots (see below), within the first 4KB sector
+//   0x1000  Blobs, each sector-aligned, in write order
 //
-// Power-fail safety: a Writer erases only the sectors it touches, writes the
-// blobs, and writes the magic header LAST. An interrupted import leaves the
-// magic invalid -> available() == false (the old card is already gone, but a
-// half-written card is never mistaken for valid).
-namespace mycard {
+// Power-fail safety: a Writer erases the header sector, writes blobs, and
+// publishes with commit() — which appends the header to the NEXT free 128-byte
+// slot of the header sector (program-only, no re-erase). commit() may be called
+// after each blob, so an interrupted write keeps every previously committed
+// blob readable (the reader uses the last valid slot). An interrupted first
+// commit leaves no valid slot -> available() == false. abort() only undoes a
+// transaction that has not committed yet.
+namespace cardstore {
 
 enum BlobId : uint8_t {
     BLOB_PDF = 0,
@@ -89,46 +90,75 @@ private:
 
 class Store {
 public:
+    // `label` is the partition name; on the simulator the backing file is
+    // `sim_env` (when set) or `sim_default`.
+    Store(const char *label, const char *sim_env, const char *sim_default);
+
     // Find the partition + read the header into a RAM cache. Idempotent; does not
     // require a valid card and never maps the bulk of the partition.
-    static bool mount();
+    bool mount();
     // True iff a complete, CRC-valid card header is cached.
-    static bool available();
+    bool available() const { return hdr_valid_; }
 
-    static const Header *header();  // cached header (RAM), nullptr if unmounted
-    static uint32_t      blob_len(BlobId id);
+    const Header *header() const { return hdr_valid_ ? &hdr_ : nullptr; }
+    uint32_t      blob_len(BlobId id) const;
 
     // Copy a blob into a caller buffer (for the PDF + small metadata). `len` is
     // clamped to the blob length; returns false if unavailable or read failed.
-    static bool read_blob(BlobId id, void *buf, uint32_t len);
+    bool read_blob(BlobId id, void *buf, uint32_t len);
 
     // Copy a sub-range [offset, offset+len) of a blob; len clamped to what remains.
     // Returns bytes read (0 if unavailable or offset past the blob).
-    static uint32_t read_blob_range(BlobId id, uint32_t offset, void *buf, uint32_t len);
+    uint32_t read_blob_range(BlobId id, uint32_t offset, void *buf, uint32_t len);
 
     // Map one stored L8 image on demand. Empty MappedImage unless the card is
     // available and the blob is FMT_L8. Keep the handle alive while displaying.
-    static MappedImage map_image(BlobId id);
+    MappedImage map_image(BlobId id);
 
-    // Replaces the stored card. erase -> write_blob... -> commit, in that order.
-    // Callers must hold no MappedImage over a blob being rewritten (drop them
-    // first); commit() refreshes the header cache.
+    // Replaces the stored card: erase -> (write_blob... commit)*. Callers must
+    // hold no MappedImage over a blob being rewritten (drop them first);
+    // commit() publishes the blobs written so far and refreshes the header cache.
     class Writer {
     public:
-        Writer() = default;
+        explicit Writer(Store &store) : store_(store) {}
         ~Writer();
 
         bool begin();
         // `meta` carries w/h/stride/levels/format for images; nullptr -> FMT_RAW.
         bool write_blob(BlobId id, const void *data, uint32_t len, const Blob *meta = nullptr);
         bool commit();
-        void abort();
+        void abort();  // only before the first commit
 
     private:
+        Store   &store_;
         Header   hdr_{};
         uint32_t cursor_ = 0;
+        uint32_t slot_ = 0;
         bool     active_ = false;
     };
+
+private:
+    bool st_find();
+    bool st_read(uint32_t off, void *buf, uint32_t len);
+    bool st_erase(uint32_t off, uint32_t len);
+    bool st_write(uint32_t off, const void *data, uint32_t len);
+    bool st_map_blob(uint32_t off, uint32_t len, const uint8_t **ptr, uintptr_t *handle);
+    void reload_header();
+
+    const char *label_;
+    const char *sim_env_;
+    const char *sim_default_;
+    Header hdr_{};
+    bool   hdr_valid_ = false;
+#ifdef ESP_PLATFORM
+    const void *part_ = nullptr;   // esp_partition_t (kept void: no esp header here)
+#else
+    uint8_t *base_ = nullptr;
+    int      fd_   = -1;
+#endif
 };
 
-}  // namespace mycard
+Store &mycard();
+Store &lastcard();
+
+}  // namespace cardstore

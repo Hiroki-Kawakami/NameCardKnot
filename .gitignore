@@ -11,3 +11,4 @@ simulator/verify/out
 simulator/sdcard/*
 !simulator/sdcard/.gitkeep
 simulator/mycard.img
+simulator/lastcard.img

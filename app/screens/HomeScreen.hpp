@@ -6,7 +6,7 @@
 #pragma once
 #include "screen_manager.hpp"
 #include "lvgl.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 
 class HomeScreen : public Screen {
 public:
@@ -15,13 +15,13 @@ public:
     void onDisappear() override;
 
 private:
-    // The My Card area is rebuilt from MyCardStore on every appearance: its
+    // The My Card area is rebuilt from the mycard store on every appearance: its
     // preview/name lv_images point into flash mapped on demand. The mappings are
     // dropped while away (so an import can rewrite the partition) and re-acquired
     // on return; onDisappear() releases them.
     lv_obj_t *mycard_section_ = nullptr;
-    mycard::MappedImage preview_map_;  // BLOB_PREVIEW mapping (preview_dsc_ points in)
-    mycard::MappedImage name_map_;     // BLOB_NAME mapping (name_dsc_ points in)
+    cardstore::MappedImage preview_map_;  // BLOB_PREVIEW mapping (preview_dsc_ points in)
+    cardstore::MappedImage name_map_;     // BLOB_NAME mapping (name_dsc_ points in)
     lv_image_dsc_t preview_dsc_{};
     lv_image_dsc_t name_dsc_{};
 

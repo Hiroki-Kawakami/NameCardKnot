@@ -25,14 +25,14 @@ void SleepScreen::build() {
     lv_label_set_text(title, "Name Card Knot");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
 
-    if (mycard::Store::available()) {
-        preview_map_ = mycard::Store::map_image(mycard::BLOB_PREVIEW);
+    if (cardstore::mycard().available()) {
+        preview_map_ = cardstore::mycard().map_image(cardstore::BLOB_PREVIEW);
         if (l8view_fill_lv_dsc(preview_map_.view(), preview_dsc_)) {
             auto image = lv_image_create(root_);
             lv_image_set_src(image, &preview_dsc_);
             lv_obj_set_style_pad_top(image, 20, 0);
         }
-        name_map_ = mycard::Store::map_image(mycard::BLOB_NAME);
+        name_map_ = cardstore::mycard().map_image(cardstore::BLOB_NAME);
         if (l8view_fill_lv_dsc(name_map_.view(), name_dsc_)) {
             auto name = lv_image_create(root_);
             lv_image_set_src(name, &name_dsc_);

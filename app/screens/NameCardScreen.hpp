@@ -23,6 +23,7 @@ public:
     void onExit() override;
     void onAppear() override;
     bool closeModal();  // true if a menu/info modal was open (power: sleep entry)
+    const std::shared_ptr<NameCardData> &data() const { return data_; }
 
 private:
     std::shared_ptr<NameCardData> data_;  // owns the decoded image + metadata

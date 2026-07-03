@@ -4,7 +4,7 @@
  */
 
 #include "ImportJob.hpp"
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 #include "NameRaster.hpp"
 #include "namecard_pdf.hpp"
 #include "lvgl.hpp"  // lv_lock/lv_unlock
@@ -31,13 +31,13 @@ bool read_file(const std::string &path, std::vector<uint8_t> &out) {
     return ok;
 }
 
-mycard::Blob image_meta(const imgproc::Image &img) {
-    mycard::Blob b{};
+cardstore::Blob image_meta(const imgproc::Image &img) {
+    cardstore::Blob b{};
     b.w = img.w;
     b.h = img.h;
     b.stride = (uint32_t)img.stride;
     b.levels = img.levels;
-    b.format = mycard::FMT_L8;
+    b.format = cardstore::FMT_L8;
     return b;
 }
 
@@ -76,15 +76,15 @@ void ImportJob::run() {
     if (!disp) return fail();  // not a viewable .mnc.pdf
     const nckpdf::Asset *glyph_a = card.find(nckpdf::AssetType::NameGlyphs);
 
-    mycard::Store::Writer w;
+    cardstore::Store::Writer w(cardstore::mycard());
     if (!w.begin()) return fail();
 
     // (1) Full PDF.
     set_phase(5, 0);
-    if (!w.write_blob(mycard::BLOB_PDF, pdf.data(), (uint32_t)pdf.size())) { w.abort(); return fail(); }
+    if (!w.write_blob(cardstore::BLOB_PDF, pdf.data(), (uint32_t)pdf.size())) { w.abort(); return fail(); }
     if (cancelled()) { w.abort(); state_.store(State::Cancelled); return; }
 
-    auto decode_to_blob = [&](mycard::BlobId id, uint16_t tw, uint16_t th, int base, int span) -> bool {
+    auto decode_to_blob = [&](cardstore::BlobId id, uint16_t tw, uint16_t th, int base, int span) -> bool {
         imgproc::Options o;
         o.target_w = tw;
         o.target_h = th;
@@ -94,17 +94,17 @@ void ImportJob::run() {
         set_phase(base, span);
         imgproc::Status st = imgproc::decode_buffer(pdf.data() + disp->offset, disp->length, o, img, &prog_);
         if (st != imgproc::Status::Ok) return false;
-        mycard::Blob meta = image_meta(img);
+        cardstore::Blob meta = image_meta(img);
         return w.write_blob(id, img.data, (uint32_t)(img.stride * img.h), &meta);
     };
 
     // (2) Display cache, (3) Home preview cache — both from the same display JPEG.
-    if (!decode_to_blob(mycard::BLOB_DISPLAY, disp_w_, disp_h_, 10, 45)) {
+    if (!decode_to_blob(cardstore::BLOB_DISPLAY, disp_w_, disp_h_, 10, 45)) {
         w.abort();
         state_.store(prog_.cancel.load() ? State::Cancelled : State::Failed);
         return;
     }
-    if (!decode_to_blob(mycard::BLOB_PREVIEW, 169, 300, 55, 30)) {
+    if (!decode_to_blob(cardstore::BLOB_PREVIEW, 169, 300, 55, 30)) {
         w.abort();
         state_.store(prog_.cancel.load() ? State::Cancelled : State::Failed);
         return;
@@ -123,13 +123,13 @@ void ImportJob::run() {
         NameRaster nr = render_name_l8(card.name.c_str(), gsp);
         lv_unlock();
         if (nr.valid()) {
-            mycard::Blob meta{};
+            cardstore::Blob meta{};
             meta.w = nr.w;
             meta.h = nr.h;
             meta.stride = nr.stride;
             meta.levels = nr.levels;
-            meta.format = mycard::FMT_L8;
-            w.write_blob(mycard::BLOB_NAME, nr.data.data(), (uint32_t)nr.data.size(), &meta);
+            meta.format = cardstore::FMT_L8;
+            w.write_blob(cardstore::BLOB_NAME, nr.data.data(), (uint32_t)nr.data.size(), &meta);
         }
     }
     if (cancelled()) { w.abort(); state_.store(State::Cancelled); return; }

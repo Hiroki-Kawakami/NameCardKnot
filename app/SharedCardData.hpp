@@ -4,7 +4,7 @@
  */
 
 #pragma once
-#include "MyCardStore.hpp"
+#include "CardStore.hpp"
 #include "image_processor.hpp"
 #include "namecard_pdf.hpp"
 #include <cstdio>
@@ -30,10 +30,10 @@ public:
 private:
     friend class SharedCardData;
     SharePdfStream(const std::string &path, size_t limit);
-    SharePdfStream(mycard::BlobId blob, size_t limit);
+    SharePdfStream(cardstore::BlobId blob, size_t limit);
 
     std::FILE *file_ = nullptr;
-    mycard::BlobId blob_ = mycard::BLOB_PDF;
+    cardstore::BlobId blob_ = cardstore::BLOB_PDF;
     bool mycard_ = false;
     bool ok_ = false;
     bool error_ = false;

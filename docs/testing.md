@@ -33,6 +33,10 @@ every screen's timeout except disabled ones); the sim's `bsp_power_off` logs
 `[sim] bsp_power_off: staying on` and returns ESP_FAIL, like a USB-powered
 device, so the script can capture the sleep display afterwards.
 
+The card flash stores are backed by `simulator/mycard.img` / `simulator/lastcard.img`
+(`SIMULATOR_MYCARD_PATH` / `SIMULATOR_LASTCARD_PATH` override — point lastcard at a
+temp file to test the sleep-entry cache and the SD-less restore).
+
 The capture is written in the configured viewing orientation: it applies the SDL
 host-view rotation, which headless can only get from the build-time
 `SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire
