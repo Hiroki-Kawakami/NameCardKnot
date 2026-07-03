@@ -11,6 +11,7 @@
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
+#include <cstring>
 
 NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav, Menu menu)
     : data_(std::move(data)), nav_(nav), initial_menu_(menu) {}
@@ -22,7 +23,7 @@ NameCardScreen::~NameCardScreen() {
 void NameCardScreen::build() {
     lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_fn(root_, LV_EVENT_CLICKED, [this](lv_event_t*) {
-        if (menuIsOpen()) closeMenu();
+        if (menuIsOpen()) closeMenu(true);
         else openMenu();
     });
 
@@ -93,6 +94,17 @@ void NameCardScreen::onAppear() {
     else                       lastcard::save_sd_file(data_->path());
 }
 
+void NameCardScreen::clearDisplay() {
+    int width = bsp_display_get_size().width;
+    uint8_t *fb = static_cast<uint8_t*>(alloca(width));
+    memset(fb, 0xff, width);
+    for (int i = 0; i < bsp_display_get_size().height; i++) {
+        bsp_display_draw_bitmap({{0, i}, {width, 1}}, fb, BSP_ROTATION_0);
+    }
+    bsp_display_refresh({{0, 0}, bsp_display_get_size()}, BSP_EPD_MODE_QUALITY_ALL);
+    lv_obj_invalidate(root_);
+}
+
 bool NameCardScreen::menuIsOpen() const {
     return menu_ && !lv_obj_has_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -108,8 +120,9 @@ void NameCardScreen::openMenu() {
     lv_obj_remove_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
 
-void NameCardScreen::closeMenu() {
+void NameCardScreen::closeMenu(bool full_refresh) {
     if (!menuIsOpen()) return;
+    if (full_refresh) clearDisplay();
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);   // ghost-clear the menu rect
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -182,7 +195,7 @@ void NameCardScreen::buildMenu() {
         lv_ver_separator_create(row1);
         button(row1, LUCIDE_INFO, "Info", [this](lv_event_t*) {
             lv_async_call([this]() {
-                closeMenu();   // sets QUALITY_ALL; the modal scrim dirties the full screen
+                closeMenu(false);   // sets QUALITY_ALL; the modal scrim dirties the full screen
                 openInfo();
             });
         });
@@ -202,7 +215,7 @@ void NameCardScreen::buildMenu() {
     lv_ver_separator_create(row2);
     button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {});
     lv_ver_separator_create(row2);
-    button(row2, LUCIDE_X, "Close", [this](lv_event_t*) { closeMenu(); });
+    button(row2, LUCIDE_X, "Close", [this](lv_event_t*) { closeMenu(true); });
 }
 
 const lv_font_t *NameCardScreen::nameFont() {
@@ -235,6 +248,7 @@ void NameCardScreen::openInfo() {
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+        clearDisplay();
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         lv_obj_t *m = modal_;
         modal_ = nullptr;   // before the close: nothing after may rely on `this`

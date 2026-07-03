@@ -56,6 +56,7 @@ static void go_to_sleep() {
         // Menu/modal open: restore the bare card (ghost-free for the long
         // static display). Else the glass already shows it — draw nothing.
         if (s_card->closeOverlays()) {
+            s_card->clearDisplay();
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             lv_refr_now(NULL);
         }

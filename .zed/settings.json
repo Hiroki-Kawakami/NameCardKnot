@@ -6,7 +6,7 @@
           "--header-insertion=never",
           "--clang-tidy",
           "--enable-config",
-          "--query-driver=/nix/store/8ajap5d3wkc61630ss1jxbgxx3zg9i1h-xtensa-esp-elf-esp-idf-v5.4.3/bin/xtensa-esp32s3-elf-*",
+          "--query-driver=/nix/store/72a00jh8k507bcz1f1dbyx02rmwqb7gc-xtensa-esp-elf-15.2.0_20251204/bin/xtensa-esp32s3-elf-*",
           "--compile-commands-dir=esp32s3/build",
         ],
       },

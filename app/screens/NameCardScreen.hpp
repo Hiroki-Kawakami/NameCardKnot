@@ -26,6 +26,7 @@ public:
     void onExit() override;
     void onAppear() override;
 
+    void clearDisplay();
     bool closeOverlays();  // hide menu + close info modal; true if anything was open
     // The screen is showing just the card image (no menu/modal): a repaint in
     // this state leaves the glass seedable for the next boot.
@@ -33,7 +34,7 @@ public:
     // Bottom-sheet menu, toggled by tapping the card. Its own rect is the only
     // dirty area, so open/close refreshes stay off the card pixels.
     void openMenu();
-    void closeMenu();
+    void closeMenu(bool full_refresh);
     // Boot resume onto a seeded panel: the first paint refreshes nothing; the
     // caller then reveals the menu (openMenu) so only its rect is driven.
     void set_resume_seeded() { seeded_ = true; }
