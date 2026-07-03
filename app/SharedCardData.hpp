@@ -30,11 +30,11 @@ public:
 private:
     friend class SharedCardData;
     SharePdfStream(const std::string &path, size_t limit);
-    SharePdfStream(cardstore::BlobId blob, size_t limit);
+    SharePdfStream(cardstore::Store &store, cardstore::BlobId blob, size_t limit);
 
     std::FILE *file_ = nullptr;
+    cardstore::Store *store_ = nullptr;
     cardstore::BlobId blob_ = cardstore::BLOB_PDF;
-    bool mycard_ = false;
     bool ok_ = false;
     bool error_ = false;
     size_t end_ = 0;
@@ -43,12 +43,13 @@ private:
 
 // The share-only half of a NameCardKnot container PDF: metadata + share JPEG(s),
 // no display image. Parses metadata up front and decodes a share image on demand.
-// Backed by an SD file (open) or the cached My Card flash blob (from_mycard).
+// Backed by an SD file (open) or a card-store flash blob (from_store: the My Card
+// partition, or the lastcard cache after an SD-file sleep/resume).
 // See docs/namecard_pdf.md.
 class SharedCardData {
 public:
     static std::shared_ptr<SharedCardData> open(const std::string &path);
-    static std::shared_ptr<SharedCardData> from_mycard(const nckpdf::Card &card);
+    static std::shared_ptr<SharedCardData> from_store(cardstore::Store &store, const nckpdf::Card &card);
 
     ~SharedCardData();
     SharedCardData(const SharedCardData &) = delete;
@@ -77,7 +78,7 @@ private:
     void load_name_glyphs();
     size_t read_source(uint32_t offset, void *buf, size_t len) const;
 
-    bool mycard_ = false;          // false: file-backed (path_); true: BLOB_PDF
+    cardstore::Store *store_ = nullptr;  // null: file-backed (path_); else BLOB_PDF from this store
     std::string path_;
     nckpdf::Card card_;
     std::vector<nckpdf::Asset> share_assets_;

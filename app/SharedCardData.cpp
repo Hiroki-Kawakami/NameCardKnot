@@ -18,8 +18,9 @@ SharePdfStream::SharePdfStream(const std::string &path, size_t limit) {
     ok_ = true;
 }
 
-SharePdfStream::SharePdfStream(cardstore::BlobId blob, size_t limit) : blob_(blob), mycard_(true) {
-    end_ = limit ? limit : cardstore::mycard().blob_len(blob);
+SharePdfStream::SharePdfStream(cardstore::Store &store, cardstore::BlobId blob, size_t limit)
+    : store_(&store), blob_(blob) {
+    end_ = limit ? limit : store.blob_len(blob);
     ok_ = true;
 }
 
@@ -33,9 +34,9 @@ size_t SharePdfStream::read(void *buf, size_t cap) {
     if (want > cap) want = cap;
     if (!want) return 0;
     size_t got;
-    if (mycard_)
-        got = cardstore::mycard().read_blob_range(blob_, static_cast<uint32_t>(pos_), buf,
-                                             static_cast<uint32_t>(want));
+    if (store_)
+        got = store_->read_blob_range(blob_, static_cast<uint32_t>(pos_), buf,
+                                      static_cast<uint32_t>(want));
     else
         got = std::fread(buf, 1, want, file_);
     pos_ += got;
@@ -51,11 +52,11 @@ std::shared_ptr<SharedCardData> SharedCardData::open(const std::string &path) {
     return self;
 }
 
-std::shared_ptr<SharedCardData> SharedCardData::from_mycard(const nckpdf::Card &card) {
+std::shared_ptr<SharedCardData> SharedCardData::from_store(cardstore::Store &store, const nckpdf::Card &card) {
     auto self = std::shared_ptr<SharedCardData>(new SharedCardData());
-    self->mycard_ = true;
+    self->store_ = &store;
     self->card_ = card;
-    self->status_ = cardstore::mycard().available() ? nckpdf::Status::Ok : nckpdf::Status::OpenFailed;
+    self->status_ = store.available() ? nckpdf::Status::Ok : nckpdf::Status::OpenFailed;
     if (self->status_ == nckpdf::Status::Ok) self->init_shared();
     return self;
 }
@@ -69,9 +70,9 @@ void SharedCardData::init_shared() {
 }
 
 size_t SharedCardData::read_source(uint32_t offset, void *buf, size_t len) const {
-    if (mycard_)
-        return cardstore::mycard().read_blob_range(cardstore::BLOB_PDF, offset, buf,
-                                              static_cast<uint32_t>(len));
+    if (store_)
+        return store_->read_blob_range(cardstore::BLOB_PDF, offset, buf,
+                                       static_cast<uint32_t>(len));
     std::FILE *f = std::fopen(path_.c_str(), "rb");
     if (!f) return 0;
     size_t got = 0;
@@ -95,7 +96,7 @@ imgproc::Status SharedCardData::decode_share_image(int index, const imgproc::Opt
                                                    imgproc::Image &out) const {
     if (index < 0 || index >= share_image_count()) return imgproc::Status::BadArgument;
     const nckpdf::Asset &a = share_assets_[index];
-    if (!mycard_)
+    if (!store_)
         return imgproc::decode_file(path_.c_str(), opts, out, nullptr, a.offset, a.length);
     std::vector<uint8_t> jpeg(a.length);
     if (read_source(a.offset, jpeg.data(), jpeg.size()) != jpeg.size())
@@ -104,8 +105,8 @@ imgproc::Status SharedCardData::decode_share_image(int index, const imgproc::Opt
 }
 
 std::unique_ptr<SharePdfStream> SharedCardData::share_stream() const {
-    SharePdfStream *s = mycard_ ? new SharePdfStream(cardstore::BLOB_PDF, card_.base_total_length)
-                                : new SharePdfStream(path_, card_.base_total_length);
+    SharePdfStream *s = store_ ? new SharePdfStream(*store_, cardstore::BLOB_PDF, card_.base_total_length)
+                               : new SharePdfStream(path_, card_.base_total_length);
     std::unique_ptr<SharePdfStream> p(s);
     return p->valid() ? std::move(p) : nullptr;
 }

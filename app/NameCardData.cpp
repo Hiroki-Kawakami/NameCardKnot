@@ -169,7 +169,11 @@ imgproc::Status NameCardData::status() const {
 
 std::shared_ptr<SharedCardData> NameCardData::share() const {
     if (kind_ != Kind::Card) return nullptr;
-    return path_.empty() ? SharedCardData::from_mycard(card_) : SharedCardData::open(path_);
+    if (path_.empty()) return SharedCardData::from_store(cardstore::mycard(), card_);
+    // Resumed from the lastcard cache (pdf_ populated): the SD file is gone, so
+    // read the share PDF from that partition instead of the unmounted path_.
+    if (!pdf_.empty()) return SharedCardData::from_store(cardstore::lastcard(), card_);
+    return SharedCardData::open(path_);
 }
 
 std::string NameCardData::label() const {
