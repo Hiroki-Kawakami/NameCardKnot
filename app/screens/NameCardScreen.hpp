@@ -15,11 +15,8 @@ public:
     // Back: pushed from the browser, bottom-left menu button pops back to it.
     // Home: loaded from Home / boot resume, the button loads HomeScreen.
     enum class Nav { Back, Home };
-    // Initial menu state: Open teaches the menu's existence (browser open, boot
-    // resume); Closed for the familiar Home -> My Card path.
-    enum class Menu { Closed, Open };
 
-    NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav, Menu menu);
+    NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav);
     ~NameCardScreen() override;
     void build() override;
     void onEnter() override;
@@ -44,7 +41,6 @@ public:
 private:
     std::shared_ptr<NameCardData> data_;  // owns the decoded image + metadata
     Nav nav_;
-    Menu initial_menu_;
     bool seeded_ = false;
     lv_image_dsc_t dsc_{};   // references the display image's buffer (kept alive by data_)
     lv_timer_t *poll_ = nullptr;  // boot resume: data_ may still be decoding

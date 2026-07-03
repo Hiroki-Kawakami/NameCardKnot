@@ -248,12 +248,10 @@ void app_entry() {
     lv_async_call([info, data, seeded]() {
         std::shared_ptr<NameCardScreen> card;
         if (data) {
-            card = std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home,
-                                                    NameCardScreen::Menu::Open);
+            card = std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
         } else if (info.source == lastcard::Source::SdFile && mount_sd_card()) {
             card = std::make_shared<NameCardScreen>(NameCardData::load(info.path, display_opts()),
-                                                    NameCardScreen::Nav::Home,
-                                                    NameCardScreen::Menu::Open);
+                                                    NameCardScreen::Nav::Home);
         }
         if (card) {
             if (seeded) card->set_resume_seeded();

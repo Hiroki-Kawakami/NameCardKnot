@@ -13,8 +13,8 @@
 #include "resources.h"
 #include <cstring>
 
-NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav, Menu menu)
-    : data_(std::move(data)), nav_(nav), initial_menu_(menu) {}
+NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav)
+    : data_(std::move(data)), nav_(nav) {}
 
 NameCardScreen::~NameCardScreen() {
     if (poll_) lv_timer_delete(poll_);
@@ -36,9 +36,6 @@ void NameCardScreen::build() {
     }
 
     buildMenu();
-    // A seeded resume paints nothing on the first flush; the caller reveals the
-    // menu afterwards so only its rect gets driven.
-    if (initial_menu_ == Menu::Open && !seeded_) lv_obj_remove_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void NameCardScreen::showImage() {
@@ -152,7 +149,6 @@ void NameCardScreen::buildMenu() {
     menu_ = lv_container_create(root_, lv_color_white());
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_FLOATING);
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_CLICKABLE);   // absorb taps on its own area
-    lv_obj_add_flag(menu_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(menu_, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_align(menu_, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_flex_flow(menu_, LV_FLEX_FLOW_COLUMN);
