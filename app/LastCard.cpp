@@ -108,7 +108,7 @@ static void set_cache_path(const char *path) {
 
 static bool s_clean_known, s_clean;   // RAM cache; all callers run on one task at a time
 
-void set_clean(bool clean) {
+void set_clean_resume(bool clean) {
     if (s_clean_known && s_clean == clean) return;
     nvs_handle_t h;
     if (!open_store(NVS_READWRITE, &h)) {
@@ -128,7 +128,7 @@ void set_clean(bool clean) {
     s_clean = clean;
 }
 
-bool clean() {
+bool clean_resume() {
     if (!s_clean_known) {
         uint8_t v = 0;
         nvs_handle_t h;
@@ -139,10 +139,6 @@ bool clean() {
         s_clean = v != 0;
     }
     return s_clean;
-}
-
-void invalidate_clean() {
-    if (clean()) set_clean(false);
 }
 
 static bool read_file(const std::string &path, std::vector<uint8_t> &out) {

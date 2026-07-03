@@ -39,8 +39,7 @@ void save_cache(const std::shared_ptr<NameCardData> &data);
 // is still the card); invalidated the moment the panel is driven with anything
 // else (the flush hook, or the boot-time clear). Only a clean boot may seed the
 // EPD instead of clearing it.
-void set_clean(bool clean);
-bool clean();
-void invalidate_clean();   // cheap no-op when already clear
+void set_clean_resume(bool clean_resume);
+bool clean_resume();
 
 }  // namespace lastcard

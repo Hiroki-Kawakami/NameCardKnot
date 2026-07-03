@@ -42,14 +42,14 @@ void NameCardScreen::showImage() {
     // The image is already at display resolution (decoded for an SD load, or
     // mapped from flash for a cached card), so show it 1:1 (no LVGL scaling).
     if (l8view_fill_lv_dsc(data_->display_view(), dsc_)) {
-        auto image = lv_image_create(root_);
-        lv_image_set_src(image, &dsc_);
-        lv_obj_center(image);
+        contents_ = lv_image_create(root_);
+        lv_image_set_src(contents_, &dsc_);
+        lv_obj_center(contents_);
     } else {
-        auto label = lv_label_create(root_);
-        lv_label_set_text(label, "No image");
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
-        lv_obj_center(label);
+        contents_ = lv_label_create(root_);
+        lv_label_set_text(contents_, "No image");
+        lv_obj_set_style_text_font(contents_, &lv_font_montserrat_24, 0);
+        lv_obj_center(contents_);
     }
     if (menu_) lv_obj_move_foreground(menu_);   // poll() adds the image after build
 }
@@ -60,7 +60,9 @@ void NameCardScreen::poll() {
     poll_ = nullptr;
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     if (data_->state() == FileLoader::State::Ok) {
+        if (menuIsOpen() && clean_resume_) epd_set_next_refresh_mode(BSP_EPD_MODE_NONE);
         showImage();
+        lastcard::set_clean_resume(cleanResumable());
     } else {
         lastcard::clear();
         screen_manager.load(std::make_shared<HomeScreen>());
@@ -80,8 +82,7 @@ void NameCardScreen::onAppear() {
         // Popped back to for sleep: QUALITY diff-skips the unchanged card
         // instead of re-flashing it.
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-    } else if (seeded_) {
-        seeded_ = false;
+    } else if (clean_resume_) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_NONE);   // the glass already shows this
     } else {
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
@@ -89,6 +90,12 @@ void NameCardScreen::onAppear() {
     power::set_timeout(this, 60 * 1000);
     if (data_->path().empty()) lastcard::save_mycard();
     else                       lastcard::save_sd_file(data_->path());
+    lastcard::set_clean_resume(cleanResumable());
+}
+
+void NameCardScreen::onDisappear() {
+    clean_resume_ = false;
+    lastcard::set_clean_resume(false);
 }
 
 void NameCardScreen::clearDisplay() {
@@ -102,13 +109,12 @@ void NameCardScreen::clearDisplay() {
     lv_obj_invalidate(root_);
 }
 
-bool NameCardScreen::menuIsOpen() const {
-    return menu_ && !lv_obj_has_flag(menu_, LV_OBJ_FLAG_HIDDEN);
+bool NameCardScreen::cleanResumable() const {
+    return modal_ == nullptr && imageLoaded();
 }
 
-bool NameCardScreen::bareCardShown() const {
-    return data_->state() == FileLoader::State::Ok && data_->display_view().valid() &&
-           !menuIsOpen() && !modal_;
+bool NameCardScreen::menuIsOpen() const {
+    return menu_ && !lv_obj_has_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void NameCardScreen::openMenu() {
@@ -122,6 +128,12 @@ void NameCardScreen::closeMenu(bool full_refresh) {
     if (full_refresh) clearDisplay();
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);   // ghost-clear the menu rect
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void NameCardScreen::refreshMenu() {
+    if (!menuIsOpen()) return;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    lv_obj_invalidate(menu_);
 }
 
 bool NameCardScreen::closeOverlays() {
@@ -220,6 +232,7 @@ const lv_font_t *NameCardScreen::nameFont() {
 }
 
 void NameCardScreen::openInfo() {
+    lastcard::set_clean_resume(false);
     auto card = lv_modal_open(root_);
     modal_ = card;
 
@@ -249,5 +262,6 @@ void NameCardScreen::openInfo() {
         lv_obj_t *m = modal_;
         modal_ = nullptr;   // before the close: nothing after may rely on `this`
         if (m) lv_modal_close(m);
+        lastcard::set_clean_resume(cleanResumable());
     });
 }

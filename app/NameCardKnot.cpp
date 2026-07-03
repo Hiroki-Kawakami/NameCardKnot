@@ -117,9 +117,6 @@ static void lvgl_init() {
             s_next_valid = false;
             if (mode != BSP_EPD_MODE_NONE) {
                 dirty_refresh(mode);
-                // Mirror what this repaint left on the glass: just the card ->
-                // a reset at any time boots into the seeded resume.
-                lastcard::set_clean(power::bare_card_displayed());
             } else {
                 s_dirty_valid = false;   // suppressed flush: GRAM only, drop the rect
             }
@@ -178,32 +175,6 @@ static std::shared_ptr<NameCardData> resume_data(const lastcard::Info &info) {
     return nullptr;
 }
 
-// Adopt the displayed image as the on-glass content (the glass kept it through
-// the power-off), so the resume render diff-skips instead of re-flashing. The
-// view need not fill the logical canvas: showImage() shows it 1:1 via
-// lv_obj_center, so a source aspect that doesn't match the panel's leaves
-// letterbox margins. Seed just the image's centered sub-rect (mirroring
-// LV_ALIGN_CENTER's own math) — the margins are already correct on glass too
-// (same layout as before sleep), just not seeded, so an unrelated later
-// refresh that happens to touch them may harmlessly redrive them.
-static bool seed_display(const L8View &v) {
-    const bsp_size_t size = bsp_display_get_size();   // panel-native landscape
-    const int canvas_w = size.height;   // logical portrait canvas
-    const int canvas_h = size.width;
-    if (!v.valid() || v.stride != v.w || v.w > canvas_w || v.h > canvas_h) {
-        ESP_LOGW(TAG, "seed skipped: view %ux%u stride=%u vs canvas %dx%d",
-                 v.w, v.h, (unsigned)v.stride, canvas_w, canvas_h);
-        return false;
-    }
-    const int x_off = canvas_w / 2 - v.w / 2;
-    const int y_off = canvas_h / 2 - v.h / 2;
-    const bsp_rect_t area = {{y_off, canvas_w - x_off - v.w}, {v.h, v.w}};
-    bsp_display_set_epd_mode(BSP_EPD_MODE_SEED);
-    bsp_display_draw_bitmap(area, v.data, BSP_ROTATION_90);
-    bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
-    return true;
-}
-
 bool mount_sd_card() {
     if (!bsp_sd_is_mounted()) {
         esp_err_t err = bsp_sd_mount("/sdcard", NULL);
@@ -227,25 +198,13 @@ void app_entry() {
     bsp_init(&bsp_config);
     cardstore::mycard().mount();
 
-    // The glass still shows the recorded card: seed it and skip the clear, so
-    // resume drives only the menu. Anything else -> white baseline.
-    const auto info = lastcard::load();
-    auto data = resume_data(info);
-    const bool seeded = lastcard::clean() && data &&
-                        data->display_view().valid() && seed_display(data->display_view());
-    ESP_LOGI(TAG, "resume: src=%d clean=%d data=%d view=%d seeded=%d",
-             (int)info.source, lastcard::clean(), data != nullptr,
-             data && data->display_view().valid(), seeded);
-    if (!seeded) {
-        bsp_display_clear();   // bring-up doesn't clear
-        lastcard::invalidate_clean();
-    }
-
     bsp_rtc_timer_stop();
     lvgl_init();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
-    lv_async_call([info, data, seeded]() {
+    lv_async_call([](void*) {
+        const auto info = lastcard::load();
+        auto data = resume_data(info);
         std::shared_ptr<NameCardScreen> card;
         if (data) {
             card = std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
@@ -254,15 +213,15 @@ void app_entry() {
                                                     NameCardScreen::Nav::Home);
         }
         if (card) {
-            if (seeded) card->set_resume_seeded();
+            card->set_clean_resume(lastcard::clean_resume());
             screen_manager.load(card);
-            if (seeded) {
+            if (lastcard::clean_resume()) {
                 lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
-                card->openMenu();
+                card->refreshMenu();
             }
         } else {
             screen_manager.load(std::make_shared<HomeScreen>());
         }
         power::start();
-    });
+    }, nullptr);
 }

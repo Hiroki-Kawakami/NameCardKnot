@@ -45,10 +45,6 @@ void set_card_screen(NameCardScreen *screen) {
     s_card = screen;
 }
 
-bool bare_card_displayed() {
-    return s_card && screen_manager.current_screen() == s_card && s_card->bareCardShown();
-}
-
 static void go_to_sleep() {
     s_sleeping = true;
     Screen *cur = screen_manager.current_screen();
@@ -80,7 +76,6 @@ static void go_to_sleep() {
     unmount_sd_card();
     bsp_hotknot_end();      // teardown belongs to the session's screen; this is a backstop
     bsp_rtc_timer_stop();   // a stale countdown would re-power the board
-    if (s_card) lastcard::set_clean(true);   // glass settled = the recorded card
     ESP_LOGI(TAG, "power off (card=%d)", s_card != nullptr);
     bsp_power_off();
 

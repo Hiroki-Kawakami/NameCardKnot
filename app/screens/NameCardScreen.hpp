@@ -22,39 +22,41 @@ public:
     void onEnter() override;
     void onExit() override;
     void onAppear() override;
+    void onDisappear() override;
 
     void clearDisplay();
     bool closeOverlays();  // hide menu + close info modal; true if anything was open
-    // The screen is showing just the card image (no menu/modal): a repaint in
-    // this state leaves the glass seedable for the next boot.
-    bool bareCardShown() const;
     // Bottom-sheet menu, toggled by tapping the card. Its own rect is the only
     // dirty area, so open/close refreshes stay off the card pixels.
     void openMenu();
     void closeMenu(bool full_refresh);
-    // Boot resume onto a seeded panel: the first paint refreshes nothing; the
+    void refreshMenu();
+    // Boot resume onto a already rendered panel: the first paint refreshes nothing; the
     // caller then reveals the menu (openMenu) so only its rect is driven.
-    void set_resume_seeded() { seeded_ = true; }
+    void set_clean_resume(bool clean_resume) { clean_resume_ = clean_resume; }
 
     const std::shared_ptr<NameCardData> &data() const { return data_; }
 
 private:
     std::shared_ptr<NameCardData> data_;  // owns the decoded image + metadata
     Nav nav_;
-    bool seeded_ = false;
+    bool clean_resume_ = false;
     lv_image_dsc_t dsc_{};   // references the display image's buffer (kept alive by data_)
     lv_timer_t *poll_ = nullptr;  // boot resume: data_ may still be decoding
     lv_obj_t *menu_ = nullptr;    // bottom menu (hidden when closed, never deleted)
     lv_obj_t *modal_ = nullptr;   // open info modal
+    lv_obj_t *contents_ = nullptr;
 
     // The name label's font chain, built lazily and cached (its mutable font
     // copies must outlive any label using them).
     std::unique_ptr<NameFont> name_font_;
     const lv_font_t *nameFont();
 
+    bool cleanResumable() const;
     bool menuIsOpen() const;
     void buildMenu();
     void showImage();
+    bool imageLoaded() const { return contents_ != nullptr; }
     void poll();
     void leave();
     void openInfo();
