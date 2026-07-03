@@ -16,6 +16,7 @@
 #include "NameCardScreen.hpp"
 #include "MyCardStore.hpp"
 #include "LastCard.hpp"
+#include "Power.hpp"
 
 static const char *TAG = "NameCardKnot";
 
@@ -193,5 +194,6 @@ void app_entry() {
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](){
         screen_manager.load(initial_screen());
+        power::start();
     });
 }

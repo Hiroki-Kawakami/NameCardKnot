@@ -28,6 +28,11 @@ card). To test resume, point `SIMULATOR_NVS_PATH` at a prepared file — namespa
 `lastcard`, key `src` `"01"` (My Card) or `"02"` + `path` (hex bytes of the
 NUL-terminated SD path).
 
+The idle power-off can be exercised with `SIMULATOR_SLEEP_TIMEOUT_MS` (overrides
+every screen's timeout except disabled ones); the sim's `bsp_power_off` logs
+`[sim] bsp_power_off: staying on` and returns ESP_FAIL, like a USB-powered
+device, so the script can capture the sleep display afterwards.
+
 The capture is written in the configured viewing orientation: it applies the SDL
 host-view rotation, which headless can only get from the build-time
 `SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire

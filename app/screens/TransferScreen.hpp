@@ -36,6 +36,7 @@ public:
     explicit TransferScreen(TransferStart start);
     ~TransferScreen() override;
     void build() override;
+    void onAppear() override;  // disables the idle power-off for the exchange
     void back() override {}  // non-interactive; reboot is the only exit
 
 private:

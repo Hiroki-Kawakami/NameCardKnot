@@ -5,6 +5,7 @@
 
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Power.hpp"
 
 #include "esp_log.h"
 #include <cstring>
@@ -44,6 +45,10 @@ TransferScreen::~TransferScreen() {
     if (recv_file_) std::fclose(recv_file_);
     if (poll_timer_) lv_timer_delete(poll_timer_);
     if (reboot_timer_) lv_timer_delete(reboot_timer_);
+}
+
+void TransferScreen::onAppear() {
+    power::set_timeout(this, 0);
 }
 
 void TransferScreen::build() {

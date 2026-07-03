@@ -7,6 +7,7 @@
 #include "NameCardKnot.hpp"
 #include "HomeScreen.hpp"
 #include "LastCard.hpp"
+#include "Power.hpp"
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
@@ -62,10 +63,29 @@ void NameCardScreen::poll() {
     }
 }
 
+void NameCardScreen::onEnter() {
+    power::set_card_screen(this);
+}
+
+void NameCardScreen::onExit() {
+    power::set_card_screen(nullptr);
+}
+
 void NameCardScreen::onAppear() {
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    // Popped back to for sleep: QUALITY diff-skips the unchanged card instead
+    // of re-flashing it.
+    epd_set_next_refresh_mode(power::sleeping() ? BSP_EPD_MODE_QUALITY
+                                                : BSP_EPD_MODE_QUALITY_ALL);
+    power::set_timeout(this, 60 * 1000);
     if (data_->path().empty()) lastcard::save_mycard();
     else                       lastcard::save_sd_file(data_->path());
+}
+
+bool NameCardScreen::closeModal() {
+    if (!modal_) return false;
+    lv_modal_close(modal_);
+    modal_ = nullptr;
+    return true;
 }
 
 void NameCardScreen::leave() {
@@ -77,6 +97,7 @@ void NameCardScreen::leave() {
 
 void NameCardScreen::openMenu() {
     auto card = lv_modal_open(root_);
+    modal_ = card;
     lv_obj_set_style_pad_row(card, 10, 0);
 
     { // Buttons
@@ -110,10 +131,10 @@ void NameCardScreen::openMenu() {
             lv_ver_separator_create(row1);
             button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [](lv_event_t*) {});
             lv_ver_separator_create(row1);
-            button(row1, LUCIDE_INFO, "Info", [this, card](lv_event_t*) {
+            button(row1, LUCIDE_INFO, "Info", [this](lv_event_t*) {
                 epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-                lv_async_call([this, card]() {
-                    lv_modal_close(card);
+                lv_async_call([this]() {
+                    closeModal();
                     openInfo();
                 });
             });
@@ -133,9 +154,9 @@ void NameCardScreen::openMenu() {
         lv_ver_separator_create(row2);
         button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {});
         lv_ver_separator_create(row2);
-        button(row2, LUCIDE_X, "Close", [card](lv_event_t*) {
+        button(row2, LUCIDE_X, "Close", [this](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-            lv_modal_close(card);
+            closeModal();
         });
     }
 }
@@ -147,6 +168,7 @@ const lv_font_t *NameCardScreen::nameFont() {
 
 void NameCardScreen::openInfo() {
     auto card = lv_modal_open(root_);
+    modal_ = card;
 
     lv_obj_t *name = lv_label_create(card);
     lv_label_set_text(name, data_->name().c_str());
@@ -168,8 +190,8 @@ void NameCardScreen::openInfo() {
     lv_obj_set_style_pad_ver(url, 10, 0);
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-        lv_modal_close(card);
+        closeModal();
     });
 }

@@ -419,6 +419,22 @@ decodes the caches and writes the partition (erase → blobs → magic header la
 power-fail safety). The name is rasterized offscreen (`app/NameRaster`, 48px L8
 canvas → 32px) so Home needs no fonts. Full spec: [`docs/mycard.md`](docs/mycard.md).
 
+**Idle power-off** is app policy in `app/Power.{hpp,cpp}`: a 1s LVGL watchdog
+(started by `app_entry`) cuts VSYS via `bsp_power_off` after inactivity.
+Timeouts are owner-declared in `onAppear` — `power::set_timeout(this, ms)` —
+and revert to the 5min default once that screen stops being current
+(NameCardScreen 60s, TransferScreen 0 = never). Sleep display: NameCardScreen
+current with no modal → nothing drawn (the glass already shows the card);
+modal open → closed + restored QUALITY_ALL; NameCardScreen below the stack →
+popped back to (QUALITY, so the unchanged card diff-skips); otherwise
+`SleepScreen` (My Card preview + board-specific wake hint; tap → Home for the
+USB-powered case). Then SD unmount → `bsp_hotknot_end` → RTC timer stop →
+`bsp_display_wait_idle` → `bsp_power_off`; a failed power-off (USB keeps VSYS
+up) re-arms the countdown. The NVS lastcard record is untouched, so wake
+resumes to the right screen. The sim's `bsp_power_off` stays alive (ESP_FAIL,
+like USB); `SIMULATOR_SLEEP_TIMEOUT_MS` shortens every timeout for scripted
+verification.
+
 `app/resources/` holds the UI assets, all `#include`-able C with no build step in
 the repo: `converted/` is generated output (LVGL image converter for the `*_80px`
 icons; lv_font_conv for `lucide_40` — see the `Opts:` header in each file for the
