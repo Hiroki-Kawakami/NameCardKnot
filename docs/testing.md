@@ -26,7 +26,11 @@ interactive runs; headless runs use `build/nvs_headless.json`, deleted at start,
 so scripted runs never inherit state (a fresh run boots to Home, not a resumed
 card). To test resume, point `SIMULATOR_NVS_PATH` at a prepared file — namespace
 `lastcard`, key `src` `"01"` (My Card) or `"02"` + `path` (hex bytes of the
-NUL-terminated SD path).
+NUL-terminated SD path); `clean` `"01"` exercises the seeded resume (skip the
+boot clear, menu-only refresh). A sim run that sleeps produces `clean` itself
+(it survives the failed `bsp_power_off`, like USB power on device), so a
+sleep-run followed by a boot-run against the same NVS file covers the full
+power cycle.
 
 The idle power-off can be exercised with `SIMULATOR_SLEEP_TIMEOUT_MS` (overrides
 every screen's timeout except disabled ones); the sim's `bsp_power_off` logs

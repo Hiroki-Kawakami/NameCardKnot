@@ -24,4 +24,8 @@ bool sleeping();                               // true while the sleep sequence 
 // the card (popping back to it if needed) instead of the SleepScreen.
 void set_card_screen(NameCardScreen *screen);
 
+// The active screen is showing just the card — a refresh issued now leaves the
+// glass seedable (the flush hook mirrors this into lastcard::set_clean).
+bool bare_card_displayed();
+
 }  // namespace power

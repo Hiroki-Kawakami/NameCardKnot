@@ -136,7 +136,8 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
         auto data = NameCardData::load_cached();
         if (!data) return;
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-        screen_manager.load(std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home));
+        screen_manager.load(std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home,
+                                                             NameCardScreen::Menu::Closed));
     });
 
     auto image = lv_image_create(button);

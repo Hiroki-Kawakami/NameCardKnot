@@ -48,6 +48,7 @@ static uint8_t *s_buf;
 static bool s_dirty_valid;
 static int s_dx1, s_dy1, s_dx2, s_dy2;
 static bsp_epd_mode_t s_default_mode, s_next_mode;
+static bool s_next_valid;   // lets next = NONE mean "this flush refreshes nothing"
 
 static void dirty_extend(int x1, int y1, int x2, int y2) {
     if (!s_dirty_valid) {
@@ -75,6 +76,7 @@ void epd_set_default_refresh_mode(bsp_epd_mode_t mode) {
 
 void epd_set_next_refresh_mode(bsp_epd_mode_t mode) {
     s_next_mode = mode;
+    s_next_valid = true;
 }
 
 static void lvgl_init() {
@@ -111,9 +113,16 @@ static void lvgl_init() {
         dirty_extend(rot.x1, rot.y1, rot.x2, rot.y2);
 
         if (lv_display_flush_is_last(disp)) {
-            bsp_epd_mode_t mode = s_next_mode ? s_next_mode : s_default_mode;
-            s_next_mode = BSP_EPD_MODE_NONE;
-            if (mode != BSP_EPD_MODE_NONE) dirty_refresh(mode);
+            bsp_epd_mode_t mode = s_next_valid ? s_next_mode : s_default_mode;
+            s_next_valid = false;
+            if (mode != BSP_EPD_MODE_NONE) {
+                dirty_refresh(mode);
+                // Mirror what this repaint left on the glass: just the card ->
+                // a reset at any time boots into the seeded resume.
+                lastcard::set_clean(power::bare_card_displayed());
+            } else {
+                s_dirty_valid = false;   // suppressed flush: GRAM only, drop the rect
+            }
         }
         lv_display_flush_ready(disp);
     });
@@ -144,32 +153,55 @@ static void lvgl_init() {
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 }
 
-// Boot resume: reopen the card recorded in NVS, else start at Home. An SD file
-// restores from the lastcard flash cache when it covers this path (no SD, no
-// decode), else falls back to the SD card (async decode; NameCardScreen polls).
-static std::shared_ptr<Screen> initial_screen() {
-    const auto info = lastcard::load();
+// The decode options every display path uses (the logical portrait resolution).
+static imgproc::Options display_opts() {
+    const bsp_size_t size = bsp_display_get_size();   // panel-native landscape
+    imgproc::Options opts;
+    opts.target_w = size.height;
+    opts.target_h = size.width;
+    opts.fit = imgproc::Fit::Contain;
+    opts.levels = 16;
+    return opts;
+}
+
+// Boot resume: the card recorded in NVS, restored without the SD card or a
+// decode when possible (mycard / lastcard mmap). nullptr -> not restorable
+// instantly (caller falls back to an SD load or Home).
+static std::shared_ptr<NameCardData> resume_data(const lastcard::Info &info) {
     if (info.source == lastcard::Source::MyCard) {
-        if (auto data = NameCardData::load_cached())
-            return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
-        lastcard::clear();
-    } else if (info.source == lastcard::Source::SdFile) {
-        lv_display_t *disp = lv_display_get_default();
-        imgproc::Options opts;
-        opts.target_w = lv_display_get_horizontal_resolution(disp);
-        opts.target_h = lv_display_get_vertical_resolution(disp);
-        opts.fit = imgproc::Fit::Contain;
-        opts.levels = 16;
-        if (lastcard::cache_path() == info.path) {
-            if (auto data = NameCardData::load_lastcard(info.path, opts))
-                return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
-        }
-        if (mount_sd_card()) {
-            return std::make_shared<NameCardScreen>(NameCardData::load(info.path, opts),
-                                                    NameCardScreen::Nav::Home);
-        }
+        auto data = NameCardData::load_cached();
+        if (!data) lastcard::clear();
+        return data;
     }
-    return std::make_shared<HomeScreen>();
+    if (info.source == lastcard::Source::SdFile && lastcard::cache_path() == info.path)
+        return NameCardData::load_lastcard(info.path, display_opts());
+    return nullptr;
+}
+
+// Adopt the displayed image as the on-glass content (the glass kept it through
+// the power-off), so the resume render diff-skips instead of re-flashing. The
+// view need not fill the logical canvas: showImage() shows it 1:1 via
+// lv_obj_center, so a source aspect that doesn't match the panel's leaves
+// letterbox margins. Seed just the image's centered sub-rect (mirroring
+// LV_ALIGN_CENTER's own math) — the margins are already correct on glass too
+// (same layout as before sleep), just not seeded, so an unrelated later
+// refresh that happens to touch them may harmlessly redrive them.
+static bool seed_display(const L8View &v) {
+    const bsp_size_t size = bsp_display_get_size();   // panel-native landscape
+    const int canvas_w = size.height;   // logical portrait canvas
+    const int canvas_h = size.width;
+    if (!v.valid() || v.stride != v.w || v.w > canvas_w || v.h > canvas_h) {
+        ESP_LOGW(TAG, "seed skipped: view %ux%u stride=%u vs canvas %dx%d",
+                 v.w, v.h, (unsigned)v.stride, canvas_w, canvas_h);
+        return false;
+    }
+    const int x_off = canvas_w / 2 - v.w / 2;
+    const int y_off = canvas_h / 2 - v.h / 2;
+    const bsp_rect_t area = {{y_off, canvas_w - x_off - v.w}, {v.h, v.w}};
+    bsp_display_set_epd_mode(BSP_EPD_MODE_SEED);
+    bsp_display_draw_bitmap(area, v.data, BSP_ROTATION_90);
+    bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
+    return true;
 }
 
 bool mount_sd_card() {
@@ -193,14 +225,46 @@ void app_entry() {
     bsp_config.touch.task_priority = 6;
     bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
-    bsp_display_clear();   // bring-up doesn't clear
-    bsp_rtc_timer_stop();
-    lvgl_init();
     cardstore::mycard().mount();
 
+    // The glass still shows the recorded card: seed it and skip the clear, so
+    // resume drives only the menu. Anything else -> white baseline.
+    const auto info = lastcard::load();
+    auto data = resume_data(info);
+    const bool seeded = lastcard::clean() && data &&
+                        data->display_view().valid() && seed_display(data->display_view());
+    ESP_LOGI(TAG, "resume: src=%d clean=%d data=%d view=%d seeded=%d",
+             (int)info.source, lastcard::clean(), data != nullptr,
+             data && data->display_view().valid(), seeded);
+    if (!seeded) {
+        bsp_display_clear();   // bring-up doesn't clear
+        lastcard::invalidate_clean();
+    }
+
+    bsp_rtc_timer_stop();
+    lvgl_init();
+
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
-    lv_async_call([](){
-        screen_manager.load(initial_screen());
+    lv_async_call([info, data, seeded]() {
+        std::shared_ptr<NameCardScreen> card;
+        if (data) {
+            card = std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home,
+                                                    NameCardScreen::Menu::Open);
+        } else if (info.source == lastcard::Source::SdFile && mount_sd_card()) {
+            card = std::make_shared<NameCardScreen>(NameCardData::load(info.path, display_opts()),
+                                                    NameCardScreen::Nav::Home,
+                                                    NameCardScreen::Menu::Open);
+        }
+        if (card) {
+            if (seeded) card->set_resume_seeded();
+            screen_manager.load(card);
+            if (seeded) {
+                lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
+                card->openMenu();
+            }
+        } else {
+            screen_manager.load(std::make_shared<HomeScreen>());
+        }
         power::start();
     });
 }

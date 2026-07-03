@@ -34,4 +34,13 @@ void clear();
 std::string cache_path();
 void save_cache(const std::shared_ptr<NameCardData> &data);
 
+// clean = the glass shows exactly the recorded card, right now. Set once the
+// sleep sequence settles the card (kept when power-off fails on USB — the glass
+// is still the card); invalidated the moment the panel is driven with anything
+// else (the flush hook, or the boot-time clear). Only a clean boot may seed the
+// EPD instead of clearing it.
+void set_clean(bool clean);
+bool clean();
+void invalidate_clean();   // cheap no-op when already clear
+
 }  // namespace lastcard

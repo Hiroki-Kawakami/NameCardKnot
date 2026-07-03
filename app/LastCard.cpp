@@ -6,6 +6,7 @@
 #include "LastCard.hpp"
 #include "CardStore.hpp"
 #include "NameCardData.hpp"
+#include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include <cstdio>
@@ -14,6 +15,7 @@
 
 namespace lastcard {
 
+static const char *TAG = "lastcard";
 static const char *kNs = "lastcard";
 
 static bool open_store(nvs_open_mode_t mode, nvs_handle_t *out) {
@@ -102,6 +104,45 @@ static void set_cache_path(const char *path) {
     else      nvs_erase_key(h, "cpath");
     nvs_commit(h);
     nvs_close(h);
+}
+
+static bool s_clean_known, s_clean;   // RAM cache; all callers run on one task at a time
+
+void set_clean(bool clean) {
+    if (s_clean_known && s_clean == clean) return;
+    nvs_handle_t h;
+    if (!open_store(NVS_READWRITE, &h)) {
+        ESP_LOGE(TAG, "set_clean(%d): open failed", clean);
+        return;
+    }
+    esp_err_t err = clean ? nvs_set_u8(h, "clean", 1) : nvs_erase_key(h, "clean");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;   // erasing an absent key
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        // Keep the cache stale so the next call retries instead of short-circuiting.
+        ESP_LOGE(TAG, "set_clean(%d): %s", clean, esp_err_to_name(err));
+        return;
+    }
+    s_clean_known = true;
+    s_clean = clean;
+}
+
+bool clean() {
+    if (!s_clean_known) {
+        uint8_t v = 0;
+        nvs_handle_t h;
+        if (!open_store(NVS_READONLY, &h)) return false;
+        nvs_get_u8(h, "clean", &v);
+        nvs_close(h);
+        s_clean_known = true;
+        s_clean = v != 0;
+    }
+    return s_clean;
+}
+
+void invalidate_clean() {
+    if (clean()) set_clean(false);
 }
 
 static bool read_file(const std::string &path, std::vector<uint8_t> &out) {

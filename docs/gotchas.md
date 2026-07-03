@@ -160,6 +160,15 @@ hit new ones.
 
 ## LVGL / ui_framework
 
+- **A handler that deletes its own object used to free the closure it was
+  executing.** `lv_obj_add_event_fn` heap-stores the `std::function` and frees it
+  on the object's `LV_EVENT_DELETE` — so a modal Close button calling
+  `lv_modal_close` (deleting its own ancestor) destroyed the running closure, and
+  statements after the close ran on freed captures. This intermittently left a
+  stale `modal_` pointer that crashed much later (the sleep sequence's
+  `closeOverlays`). The trampoline now copies the function to the stack before
+  invoking, so self-deleting handlers are safe end-to-end; still prefer writing
+  members *before* the delete, and `lv_async_call` for anything after it.
 - **LVGL runs on a different thread than your app task.** On device, esp_lvgl_port
   owns an LVGL task; on the simulator, `lv_timer_handler()` runs inside
   `lvgl_sim_loop()` on the main thread (`simulator/main/main.cpp`) while the app's

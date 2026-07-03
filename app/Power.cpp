@@ -11,7 +11,10 @@
 #include "screen_manager.hpp"
 #include "NameCardScreen.hpp"
 #include "SleepScreen.hpp"
+#include "esp_log.h"
 #include <cstdlib>
+
+static const char *TAG = "power";
 
 namespace power {
 
@@ -42,13 +45,17 @@ void set_card_screen(NameCardScreen *screen) {
     s_card = screen;
 }
 
+bool bare_card_displayed() {
+    return s_card && screen_manager.current_screen() == s_card && s_card->bareCardShown();
+}
+
 static void go_to_sleep() {
     s_sleeping = true;
     Screen *cur = screen_manager.current_screen();
     if (s_card && cur == s_card) {
-        // Menu open: restore the bare card (ghost-free for the long static
-        // display). Else the glass already shows it — draw nothing.
-        if (s_card->closeModal()) {
+        // Menu/modal open: restore the bare card (ghost-free for the long
+        // static display). Else the glass already shows it — draw nothing.
+        if (s_card->closeOverlays()) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             lv_refr_now(NULL);
         }
@@ -72,10 +79,13 @@ static void go_to_sleep() {
     unmount_sd_card();
     bsp_hotknot_end();      // teardown belongs to the session's screen; this is a backstop
     bsp_rtc_timer_stop();   // a stale countdown would re-power the board
+    if (s_card) lastcard::set_clean(true);   // glass settled = the recorded card
+    ESP_LOGI(TAG, "power off (card=%d)", s_card != nullptr);
     bsp_power_off();
 
-    // Still here: USB keeps VSYS up. Stay on and retry after another full
-    // idle period.
+    // Still here: USB keeps VSYS up. Stay on and retry after another full idle
+    // period. clean stays set — the glass still shows the card, and the flush
+    // hook invalidates it on the next real repaint.
     s_sleeping = false;
     kick();
 }

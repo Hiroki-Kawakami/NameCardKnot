@@ -362,7 +362,9 @@ device**. The flush_cb blits each area with `bsp_display_draw_bitmap`, accumulat
 the dirty rect, and on the last partial flush calls `bsp_display_refresh(dirty,
 mode)`. The EPD refresh mode is the app's own simple policy, exposed via
 `NameCardKnot.hpp`: `epd_set_default_refresh_mode()` (the standing mode) and
-`epd_set_next_refresh_mode()` (overrides the next refresh). A new board re-tailors
+`epd_set_next_refresh_mode()` (overrides the next refresh; an explicit `NONE`
+suppresses that flush's refresh and drops its dirty rect — the seeded-resume
+first paint). A new board re-tailors
 this small glue; esp-devkit itself stays panel-free. Threading and EPD timing
 caveats: [`docs/gotchas.md`](docs/gotchas.md).
 
@@ -376,7 +378,19 @@ with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
 `NameCardScreen` directly (power-off resume, no Home in between), else
 `HomeScreen`. An SD card restores from the lastcard flash cache when NVS `cpath`
 matches (`NameCardData::load_lastcard`: MMIO display blob, else a sync decode of
-the cached PDF — no SD needed), falling back to the SD file. Current screens:
+the cached PDF — no SD needed), falling back to the SD file. The NVS `clean`
+flag is the invariant "the glass shows exactly the recorded bare card, right
+now": the flush hook mirrors it on every issued refresh (`set_clean(
+power::bare_card_displayed())` — true when the repaint left just the card, no
+menu/modal), the sleep sequence asserts it before `bsp_power_off`, and the
+boot-time clear drops it. So a reset at ANY moment while the bare card is
+showing — mid-session, after a failed USB power-off, or a real wake — boots
+clean. A clean boot skips `bsp_display_clear()` and **seeds** the panel
+(`BSP_EPD_MODE_SEED` draw of the restored L8) instead: the resume's first paint
+refreshes nothing (explicit `NONE`) and only the menu rect is driven when it is
+revealed — a wake never re-flashes the card. (Residual risk: a reset within the
+~1s an issued refresh is still driving leaves a partially-driven glass seeded
+as clean — bounded ghosts until the next full repaint.) Current screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
@@ -393,9 +407,15 @@ new file type is just a new loader + callback at the call site, not new per-type
 modal code. An `lv_timer` polls the loader, drives the bar (throttled — each EPD
 refresh is costly), and on completion runs the callback, which pushes
 `NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` has two nav
-modes: `Nav::Back` (pushed from the browser; bottom-left menu button pops back)
-and `Nav::Home` (loaded from Home / boot resume; the button loads `HomeScreen`) —
-so a resume boot never needs a screen under it. It also accepts a still-Loading
+modes: `Nav::Back` (pushed from the browser; the menu's bottom-left button pops
+back) and `Nav::Home` (loaded from Home / boot resume; the button loads
+`HomeScreen`) — so a resume boot never needs a screen under it. Its menu is a
+**self-made bottom sheet** (no `lv_modal`/scrim): tapping the card toggles it,
+taps on the background close it, and since only the menu object invalidates,
+open/close refreshes stay off the card pixels (open = QUALITY, close =
+QUALITY_ALL rect ghost-clear). It starts open when opened from the browser or a
+boot resume (teaches the menu's existence) and closed from Home's My Card. It
+also accepts a still-Loading
 `NameCardData` (boot SD resume) and polls it with an `lv_timer`, falling back to
 Home on failure. `NameCardScreen` keeps the
 `shared_ptr<NameCardData>` (so the buffer outlives the `lv_image`) and shows it 1:1
@@ -437,8 +457,9 @@ popped back to (QUALITY, so the unchanged card diff-skips); otherwise
 USB-powered case). Then `bsp_display_wait_idle` (park the EPD before flash
 writes) → `lastcard::save_cache` (cache the displayed card's PDF + L8 to the
 lastcard partition; skipped for My Card or an unchanged card) → SD unmount →
-`bsp_hotknot_end` → RTC timer stop → `bsp_power_off`; a failed power-off (USB
-keeps VSYS up) re-arms the countdown. The NVS lastcard record is untouched, so wake
+`bsp_hotknot_end` → RTC timer stop → `lastcard::set_clean(true)` when a card is
+on the glass (covers the draw-nothing quiet path; repaints mirror it anyway) →
+`bsp_power_off`; a failed power-off (USB keeps VSYS up) re-arms the countdown. The NVS lastcard record is untouched, so wake
 resumes to the right screen. The sim's `bsp_power_off` stays alive (ESP_FAIL,
 like USB); `SIMULATOR_SLEEP_TIMEOUT_MS` shortens every timeout for scripted
 verification.
