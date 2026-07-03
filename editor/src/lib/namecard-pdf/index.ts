@@ -33,6 +33,7 @@ export interface NameCardInput {
 
 export { type GlyphSet, type Glyph } from "./glyphs.ts";
 export { parseFooter, type FooterEntry, type ParsedFooter } from "./footer.ts";
+export { parseNameCard, type ParsedNameCard } from "./pdf-reader.ts";
 export { AssetType, AssetSubtype } from "./constants.ts";
 
 const IMG_DICT = (w: number, h: number) =>

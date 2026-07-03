@@ -4,11 +4,17 @@ A small client-side SPA for authoring NameCardKnot cards. It collects the name,
 URL, message, a display image, and up to two share images, then saves a
 **`.mnc.pdf`** container (a normal PDF that also carries the data + embedded
 JPEGs for the device — see [`../docs/namecard_pdf.md`](../docs/namecard_pdf.md)).
-The display image is scaled to fit 540×960 and share images to fit 405×720
-(aspect preserved); share image 1 can reuse the display image.
+The display image targets 540×960 and share images 405×720; each image has a
+cover ("切り抜く": drag-to-pan + zoom) or fit ("余白で収める") placement, and
+share image 1 can reuse the display image. The right pane live-previews the
+device rendering (16-gray dithered, `src/lib/epd-preview.ts`) and an
+approximation of the PDF share page. A saved `.mnc.pdf`/`.snc.pdf` can be
+re-opened for editing (footer-index reader, `src/lib/namecard-pdf/pdf-reader.ts`);
+text fields survive reloads via a localStorage draft.
 
-The container writer is a framework-free library in `src/lib/namecard-pdf/`
-(`buildNameCardPdf` / `buildSharePdf`), unit-tested with vitest (`npm test`).
+The container writer/reader is a framework-free library in
+`src/lib/namecard-pdf/` (`buildNameCardPdf` / `buildSharePdf` /
+`parseNameCard`), unit-tested with vitest (`npm test`).
 
 TypeScript + React + Vite, no backend.
 

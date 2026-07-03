@@ -4,8 +4,41 @@
  */
 :root {
   font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
-  color: #1a1a1a;
-  background: #f4f4f5;
+  --fg: #1a1a1a;
+  --fg-muted: #666;
+  --bg: #f4f4f5;
+  --surface: #fff;
+  --border: #d4d4d8;
+  --accent: #1a1a1a;
+  --accent-fg: #fff;
+  --warning: #b45309;
+  --error-bg: #fef2f2;
+  --error-fg: #b91c1c;
+  --error-border: #fecaca;
+  --notice-bg: #f0fdf4;
+  --notice-fg: #15803d;
+  --notice-border: #bbf7d0;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e4e4e7;
+    --fg-muted: #a1a1aa;
+    --bg: #18181b;
+    --surface: #27272a;
+    --border: #3f3f46;
+    --accent: #e4e4e7;
+    --accent-fg: #18181b;
+    --warning: #fbbf24;
+    --error-bg: #391717;
+    --error-fg: #fca5a5;
+    --error-border: #7f1d1d;
+    --notice-bg: #14291c;
+    --notice-fg: #86efac;
+    --notice-border: #14532d;
+  }
 }
 
 * {
@@ -17,20 +50,41 @@ body {
 }
 
 main {
-  max-width: 720px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 24px;
 }
 
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 header h1 {
-  margin: 0 0 24px;
+  margin: 0;
   font-size: 1.5rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .field {
@@ -39,19 +93,34 @@ header h1 {
   gap: 6px;
 }
 
-.field > span {
+.field .field {
+  margin-top: 4px;
+}
+
+.field-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #333;
+}
+
+.field-help {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.field-warning {
+  font-size: 0.78rem;
+  color: var(--warning);
 }
 
 .field input[type="text"],
+.field input[type="url"],
 .field textarea {
   font: inherit;
+  color: inherit;
   padding: 8px 10px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .field textarea {
@@ -64,44 +133,231 @@ header h1 {
   align-items: center;
   gap: 8px;
   font-size: 0.9rem;
-  font-weight: 400;
 }
 
 .checkbox input {
   width: auto;
 }
 
-.thumb {
-  margin-top: 6px;
-  max-width: 160px;
-  max-height: 160px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  object-fit: contain;
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
 
-.preview {
-  margin-top: 6px;
-  width: 180px;
-  height: 320px;
-  border: 1px solid #ccc;
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+.dropzone:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.banner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.banner button {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+.banner.error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--error-border);
+}
+
+.banner.notice {
+  background: var(--notice-bg);
+  color: var(--notice-fg);
+  border: 1px solid var(--notice-border);
+}
+
+.dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: 16px;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dropzone.dragover {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+.picker {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border-radius: 8px;
+}
+
+.picker.dragover {
+  outline: 2px dashed var(--fg);
+  outline-offset: 4px;
+}
+
+.picker-canvas {
+  width: 150px;
+  height: auto;
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  flex-shrink: 0;
+  touch-action: none;
 }
 
-.form button {
-  align-self: flex-start;
-  font: inherit;
+.picker-canvas.pannable {
+  cursor: grab;
+}
+
+.picker-canvas.pannable:active {
+  cursor: grabbing;
+}
+
+.picker-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border: none;
+  background: var(--surface);
+  padding: 5px 12px;
+  font-size: 0.8rem;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+.picker-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+button.small,
+button.secondary {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+button.secondary {
+  font-size: 0.85rem;
+  padding: 7px 14px;
+}
+
+.save-area {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.save-area > button {
   font-weight: 600;
   padding: 10px 24px;
   border: none;
   border-radius: 6px;
-  background: #1a1a1a;
-  color: #fff;
-  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
-.form button:disabled {
-  background: #bbb;
+.save-area > button:disabled {
+  opacity: 0.45;
   cursor: default;
+}
+
+.preview-pane {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.preview-block h2 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.device-frame {
+  position: relative;
+  width: 280px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #2b2b2e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.device-frame canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+}
+
+.preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.share-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
 }
