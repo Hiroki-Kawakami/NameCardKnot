@@ -220,6 +220,7 @@ void app_entry() {
                 card->refreshMenu();
             }
         } else {
+            bsp_display_clear();
             screen_manager.load(std::make_shared<HomeScreen>());
         }
         power::start();

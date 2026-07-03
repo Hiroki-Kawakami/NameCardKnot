@@ -199,8 +199,10 @@ implement the public API once by dispatching through the active vtable.
   update GRAM (its TCON-internal previous image is not seedable).
 - `bsp_display_wait_idle()` blocks until in-flight updates retire — the gate
   before cutting power.
-- Bring-up does **not** clear the panel; the app establishes the baseline
-  (`app_entry` calls `bsp_display_clear()`).
+- Bring-up does **not** clear the panel; the app establishes the baseline via
+  the first screen's own full (`QUALITY_ALL`) refresh — a `clean_resume` boot
+  even skips that (adopts the card already on glass). `bsp_display_clear()`
+  remains available for a known-baseline reset (e.g. `GrayscaleTestScreen`).
 
 (Consequence: a draw alone shows nothing on EPD — see [`docs/gotchas.md`](docs/gotchas.md).)
 
@@ -363,7 +365,7 @@ the dirty rect, and on the last partial flush calls `bsp_display_refresh(dirty,
 mode)`. The EPD refresh mode is the app's own simple policy, exposed via
 `NameCardKnot.hpp`: `epd_set_default_refresh_mode()` (the standing mode) and
 `epd_set_next_refresh_mode()` (overrides the next refresh; an explicit `NONE`
-suppresses that flush's refresh and drops its dirty rect — the seeded-resume
+suppresses that flush's refresh and drops its dirty rect — the clean-resume
 first paint). A new board re-tailors
 this small glue; esp-devkit itself stays panel-free. Threading and EPD timing
 caveats: [`docs/gotchas.md`](docs/gotchas.md).
@@ -379,18 +381,18 @@ with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
 `HomeScreen`. An SD card restores from the lastcard flash cache when NVS `cpath`
 matches (`NameCardData::load_lastcard`: MMIO display blob, else a sync decode of
 the cached PDF — no SD needed), falling back to the SD file. The NVS `clean`
-flag is the invariant "the glass shows exactly the recorded bare card, right
-now": the flush hook mirrors it on every issued refresh (`set_clean(
-power::bare_card_displayed())` — true when the repaint left just the card, no
-menu/modal), the sleep sequence asserts it before `bsp_power_off`, and the
-boot-time clear drops it. So a reset at ANY moment while the bare card is
-showing — mid-session, after a failed USB power-off, or a real wake — boots
-clean. A clean boot skips `bsp_display_clear()` and **seeds** the panel
-(`BSP_EPD_MODE_SEED` draw of the restored L8) instead: the resume's first paint
-refreshes nothing (explicit `NONE`) and only the menu rect is driven when it is
-revealed — a wake never re-flashes the card. (Residual risk: a reset within the
-~1s an issued refresh is still driving leaves a partially-driven glass seeded
-as clean — bounded ghosts until the next full repaint.) Current screens:
+flag (`lastcard::clean_resume`) records "the glass shows a fully-rendered card
+(no modal)": `NameCardScreen` sets it while showing the card and clears it on
+leave / when a modal opens. Bring-up neither clears nor seeds the panel; on a
+`clean_resume` boot the resume **adopts** the card the glass still shows — the
+first paint refreshes nothing (explicit `NONE`) and only the always-open menu's
+rect is driven (`refreshMenu`), so a wake never re-flashes the card. Otherwise
+`NameCardScreen::onAppear` drives a one-shot `QUALITY_ALL` that repaints the
+whole card from scratch (no `bsp_display_clear()`). Closing the menu likewise
+does a full-screen clean refresh (`clearDisplay` → white → `QUALITY_ALL` repaint
+of the card), so ghosts never accumulate — hence seeding is no longer needed and
+the resume can paint fast without regard to prior on-glass content. Current
+screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
@@ -410,12 +412,13 @@ refresh is costly), and on completion runs the callback, which pushes
 modes: `Nav::Back` (pushed from the browser; the menu's bottom-left button pops
 back) and `Nav::Home` (loaded from Home / boot resume; the button loads
 `HomeScreen`) — so a resume boot never needs a screen under it. Its menu is a
-**self-made bottom sheet** (no `lv_modal`/scrim): tapping the card toggles it,
-taps on the background close it, and since only the menu object invalidates,
-open/close refreshes stay off the card pixels (open = QUALITY, close =
-QUALITY_ALL rect ghost-clear). It starts open when opened from the browser or a
-boot resume (teaches the menu's existence) and closed from Home's My Card. It
-also accepts a still-Loading
+**self-made bottom sheet** (no `lv_modal`/scrim): tapping the card toggles it.
+Opening only invalidates the menu object (open = QUALITY, off the card pixels);
+closing does a full-screen clean refresh (`clearDisplay` → white → `QUALITY_ALL`
+repaint of the card, ghost-free) — except the Info button, which closes the menu
+with just its own rect since the modal scrim dirties the full screen anyway. The
+menu **always starts open** when the screen opens (from the browser, Home's My
+Card, or a boot resume). It also accepts a still-Loading
 `NameCardData` (boot SD resume) and polls it with an `lv_timer`, falling back to
 Home on failure. `NameCardScreen` keeps the
 `shared_ptr<NameCardData>` (so the buffer outlives the `lv_image`) and shows it 1:1
@@ -450,16 +453,18 @@ decodes the caches and writes the partition. The name is rasterized offscreen
 Timeouts are owner-declared in `onAppear` — `power::set_timeout(this, ms)` —
 and revert to the 5min default once that screen stops being current
 (NameCardScreen 60s, TransferScreen 0 = never). Sleep display: NameCardScreen
-current with no modal → nothing drawn (the glass already shows the card);
-modal open → closed + restored QUALITY_ALL; NameCardScreen below the stack →
+current with no menu/modal open → nothing drawn (the glass already shows the
+card); menu/modal open → closed + full-screen `QUALITY_ALL` repaint of the bare
+card (`clearDisplay`); NameCardScreen below the stack →
 popped back to (QUALITY, so the unchanged card diff-skips); otherwise
 `SleepScreen` (My Card preview + board-specific wake hint; tap → Home for the
 USB-powered case). Then `bsp_display_wait_idle` (park the EPD before flash
 writes) → `lastcard::save_cache` (cache the displayed card's PDF + L8 to the
 lastcard partition; skipped for My Card or an unchanged card) → SD unmount →
-`bsp_hotknot_end` → RTC timer stop → `lastcard::set_clean(true)` when a card is
-on the glass (covers the draw-nothing quiet path; repaints mirror it anyway) →
-`bsp_power_off`; a failed power-off (USB keeps VSYS up) re-arms the countdown. The NVS lastcard record is untouched, so wake
+`bsp_hotknot_end` → RTC timer stop → `bsp_power_off`; a failed power-off (USB
+keeps VSYS up) re-arms the countdown. `clean_resume` is owned by `NameCardScreen`
+(not touched here); the glass still shows the card, so it stays valid. The NVS
+lastcard record is untouched, so wake
 resumes to the right screen. The sim's `bsp_power_off` stays alive (ESP_FAIL,
 like USB); `SIMULATOR_SLEEP_TIMEOUT_MS` shortens every timeout for scripted
 verification.

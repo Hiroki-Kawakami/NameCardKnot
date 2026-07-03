@@ -30,13 +30,18 @@ hit new ones.
   must call `bsp_display_refresh(area, mode)` (or `bsp_display_set_epd_mode(non-NONE)`
   first) to paint the panel. `paper_s3` is `DIRECT_EPD`, so its app draws then refreshes.
 - **Boot does not clear the EPD.** The glass keeps its last image while the
-  driver assumes white, so a diff refresh would drive from a wrong `from` gray.
-  Establish a baseline first: `bsp_display_clear()` (what `app_entry` does), or
-  draw the known on-glass image in `BSP_EPD_MODE_SEED` — adopted with no drive,
-  so later draws diff-skip against it. Seed **before** any normal draw of the
-  same content (the reverse order stamps PENDING and re-drives the whole image).
-  `paper`'s IT8951E can't seed its TCON-internal previous image — the first
-  refresh over a seeded area may show artifacts; verify on hardware.
+  driver assumes white, so a *diff* refresh would drive from a wrong `from` gray.
+  Establish a baseline first, by any of: `bsp_display_clear()`; a full-drive
+  `BSP_EPD_MODE_ALL` refresh (drives every pixel regardless of the assumed
+  `from`, so the wrong baseline doesn't matter); or draw the known on-glass image
+  in `BSP_EPD_MODE_SEED` — adopted with no drive, so later diff draws skip against
+  it (seed **before** any normal draw of the same content — the reverse order
+  stamps PENDING and re-drives the whole image; `paper`'s IT8951E can't seed its
+  TCON-internal previous image, so the first refresh over a seeded area may show
+  artifacts — verify on hardware). The app takes the `ALL` route: `app_entry` no
+  longer clears; `NameCardScreen::onAppear` does a `QUALITY_ALL`, and a
+  `clean_resume` boot instead adopts the card already on glass (paint-nothing
+  first flush, then only the menu rect).
 - **The device EPD engine is invisible in the simulator.** On device, `epd_ll` is a
   per-pixel waveform engine (pure core unit-tested via
   `esp-devkit/bsp/driver/epd/test/run.sh`): one uint16 per pixel holds

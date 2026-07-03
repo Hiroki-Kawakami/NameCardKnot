@@ -34,11 +34,10 @@ void clear();
 std::string cache_path();
 void save_cache(const std::shared_ptr<NameCardData> &data);
 
-// clean = the glass shows exactly the recorded card, right now. Set once the
-// sleep sequence settles the card (kept when power-off fails on USB — the glass
-// is still the card); invalidated the moment the panel is driven with anything
-// else (the flush hook, or the boot-time clear). Only a clean boot may seed the
-// EPD instead of clearing it.
+// clean_resume = the glass shows a fully-rendered card (no modal), so boot can
+// adopt it: the resume's first paint refreshes nothing and only the menu rect is
+// driven, never re-flashing the card. NameCardScreen sets it while showing the
+// card and clears it on leave / when a modal opens.
 void set_clean_resume(bool clean_resume);
 bool clean_resume();
 

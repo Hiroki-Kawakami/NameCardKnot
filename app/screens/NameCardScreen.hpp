@@ -31,8 +31,9 @@ public:
     void openMenu();
     void closeMenu(bool full_refresh);
     void refreshMenu();
-    // Boot resume onto a already rendered panel: the first paint refreshes nothing; the
-    // caller then reveals the menu (openMenu) so only its rect is driven.
+    // Boot resume onto the card the glass still shows: onAppear's first paint
+    // refreshes nothing, then the caller drives only the menu rect (refreshMenu),
+    // so the card is never re-flashed.
     void set_clean_resume(bool clean_resume) { clean_resume_ = clean_resume; }
 
     const std::shared_ptr<NameCardData> &data() const { return data_; }
@@ -45,7 +46,7 @@ private:
     lv_timer_t *poll_ = nullptr;  // boot resume: data_ may still be decoding
     lv_obj_t *menu_ = nullptr;    // bottom menu (hidden when closed, never deleted)
     lv_obj_t *modal_ = nullptr;   // open info modal
-    lv_obj_t *contents_ = nullptr;
+    lv_obj_t *contents_ = nullptr;   // the card image (or a fallback label)
 
     // The name label's font chain, built lazily and cached (its mutable font
     // copies must outlive any label using them).

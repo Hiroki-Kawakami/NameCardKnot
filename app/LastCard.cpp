@@ -112,7 +112,7 @@ void set_clean_resume(bool clean) {
     if (s_clean_known && s_clean == clean) return;
     nvs_handle_t h;
     if (!open_store(NVS_READWRITE, &h)) {
-        ESP_LOGE(TAG, "set_clean(%d): open failed", clean);
+        ESP_LOGE(TAG, "set_clean_resume(%d): open failed", clean);
         return;
     }
     esp_err_t err = clean ? nvs_set_u8(h, "clean", 1) : nvs_erase_key(h, "clean");
@@ -121,7 +121,7 @@ void set_clean_resume(bool clean) {
     nvs_close(h);
     if (err != ESP_OK) {
         // Keep the cache stale so the next call retries instead of short-circuiting.
-        ESP_LOGE(TAG, "set_clean(%d): %s", clean, esp_err_to_name(err));
+        ESP_LOGE(TAG, "set_clean_resume(%d): %s", clean, esp_err_to_name(err));
         return;
     }
     s_clean_known = true;

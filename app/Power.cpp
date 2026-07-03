@@ -80,8 +80,7 @@ static void go_to_sleep() {
     bsp_power_off();
 
     // Still here: USB keeps VSYS up. Stay on and retry after another full idle
-    // period. clean stays set — the glass still shows the card, and the flush
-    // hook invalidates it on the next real repaint.
+    // period; the glass still shows the card, so wake resumes correctly.
     s_sleeping = false;
     kick();
 }
