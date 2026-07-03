@@ -178,9 +178,9 @@ implement the public API once by dispatching through the active vtable.
   un-rotates the source into the panel-coordinate rect, fused into the copy via the
   shared `bsp_blit_rotated` helper), `deinit`.
 - **Optional (NULL when absent):** `get_framebuffers` + `flush` (host-framebuffer
-  fast path — MIPI), `set_brightness` (backlight), and `set_epd_mode` + `refresh`
-  (EPD only). The public `bsp_display_*` wrappers no-op when the op is NULL, so the
-  API is uniform across panel types.
+  fast path — MIPI), `set_brightness` (backlight), and `set_epd_mode` + `refresh` +
+  `wait_idle` (EPD only). The public `bsp_display_*` wrappers no-op when the op is
+  NULL, so the API is uniform across panel types.
 
 ### Panel types & the EPD model
 
@@ -194,6 +194,13 @@ implement the public API once by dispatching through the active vtable.
   the area, diff or not — the ghost clear.
 - `clear()` (`bsp_display_clear`) blanks the whole panel to white — the
   known-baseline reset (not a refresh mode).
+- `BSP_EPD_MODE_SEED`: a draw in this mode adopts the pixels as already on glass
+  (no drive) — restores diff-tracking after a power cycle. IT8951E can only
+  update GRAM (its TCON-internal previous image is not seedable).
+- `bsp_display_wait_idle()` blocks until in-flight updates retire — the gate
+  before cutting power.
+- Bring-up does **not** clear the panel; the app establishes the baseline
+  (`app_entry` calls `bsp_display_clear()`).
 
 (Consequence: a draw alone shows nothing on EPD — see [`docs/gotchas.md`](docs/gotchas.md).)
 
@@ -362,8 +369,12 @@ caveats: [`docs/gotchas.md`](docs/gotchas.md).
 ### Screens & resources (app-side)
 
 `app/screens/` holds the `Screen` subclasses; each builds its tree in `build()`
-and is loaded via the `screen_manager`. `app_entry()` loads the first screen
-(`HomeScreen`) with `lv_async_call` (onto the LVGL context). Current screens:
+and is loaded via the `screen_manager`. `app_entry()` picks the first screen
+with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
+`lastcard`) records a card being displayed — My Card or an SD path, saved by
+`NameCardScreen::onAppear` and cleared when the user leaves it — it reopens
+`NameCardScreen` directly (power-off resume, no Home in between), else
+`HomeScreen`. Current screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
@@ -379,7 +390,12 @@ browser holds one `FileLoader` plus a completion `std::function` callback, so a
 new file type is just a new loader + callback at the call site, not new per-type
 modal code. An `lv_timer` polls the loader, drives the bar (throttled — each EPD
 refresh is costly), and on completion runs the callback, which pushes
-`NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` keeps the
+`NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` has two nav
+modes: `Nav::Back` (pushed from the browser; bottom-left menu button pops back)
+and `Nav::Home` (loaded from Home / boot resume; the button loads `HomeScreen`) —
+so a resume boot never needs a screen under it. It also accepts a still-Loading
+`NameCardData` (boot SD resume) and polls it with an `lv_timer`, falling back to
+Home on failure. `NameCardScreen` keeps the
 `shared_ptr<NameCardData>` (so the buffer outlives the `lv_image`) and shows it 1:1
 via `display_view()` — an `L8View` (`app/L8View.hpp`) that unifies an SD load's
 decoded image and a cached card's mmap blob, blitted through `l8view_fill_lv_dsc`

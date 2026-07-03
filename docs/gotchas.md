@@ -29,6 +29,14 @@ hit new ones.
   at its default `BSP_EPD_MODE_NONE`, a draw only stamps the framebuffer. The app
   must call `bsp_display_refresh(area, mode)` (or `bsp_display_set_epd_mode(non-NONE)`
   first) to paint the panel. `paper_s3` is `DIRECT_EPD`, so its app draws then refreshes.
+- **Boot does not clear the EPD.** The glass keeps its last image while the
+  driver assumes white, so a diff refresh would drive from a wrong `from` gray.
+  Establish a baseline first: `bsp_display_clear()` (what `app_entry` does), or
+  draw the known on-glass image in `BSP_EPD_MODE_SEED` — adopted with no drive,
+  so later draws diff-skip against it. Seed **before** any normal draw of the
+  same content (the reverse order stamps PENDING and re-drives the whole image).
+  `paper`'s IT8951E can't seed its TCON-internal previous image — the first
+  refresh over a seeded area may show artifacts; verify on hardware.
 - **The device EPD engine is invisible in the simulator.** On device, `epd_ll` is a
   per-pixel waveform engine (pure core unit-tested via
   `esp-devkit/bsp/driver/epd/test/run.sh`): one uint16 per pixel holds

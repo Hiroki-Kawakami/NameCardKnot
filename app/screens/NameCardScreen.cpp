@@ -5,13 +5,36 @@
 
 #include "NameCardScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "HomeScreen.hpp"
+#include "LastCard.hpp"
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
 
-NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data) : data_(std::move(data)) {}
+NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav)
+    : data_(std::move(data)), nav_(nav) {}
+
+NameCardScreen::~NameCardScreen() {
+    if (poll_) lv_timer_delete(poll_);
+}
 
 void NameCardScreen::build() {
+    lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_fn(root_, LV_EVENT_CLICKED, [this](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+        openMenu();
+    });
+
+    if (data_->state() == FileLoader::State::Loading) {
+        poll_ = lv_timer_create([](lv_timer_t *t) {
+            static_cast<NameCardScreen *>(lv_timer_get_user_data(t))->poll();
+        }, 200, this);
+        return;
+    }
+    showImage();
+}
+
+void NameCardScreen::showImage() {
     // The image is already at display resolution (decoded for an SD load, or
     // mapped from flash for a cached card), so show it 1:1 (no LVGL scaling).
     if (l8view_fill_lv_dsc(data_->display_view(), dsc_)) {
@@ -24,16 +47,32 @@ void NameCardScreen::build() {
         lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
         lv_obj_center(label);
     }
+}
 
-    lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_fn(root_, LV_EVENT_CLICKED, [this](lv_event_t*) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-        openMenu();
-    });
+void NameCardScreen::poll() {
+    if (data_->state() == FileLoader::State::Loading) return;
+    lv_timer_delete(poll_);
+    poll_ = nullptr;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    if (data_->state() == FileLoader::State::Ok) {
+        showImage();
+    } else {
+        lastcard::clear();
+        screen_manager.load(std::make_shared<HomeScreen>());
+    }
 }
 
 void NameCardScreen::onAppear() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    if (data_->path().empty()) lastcard::save_mycard();
+    else                       lastcard::save_sd_file(data_->path());
+}
+
+void NameCardScreen::leave() {
+    lastcard::clear();
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    if (nav_ == Nav::Back) screen_manager.pop();
+    else                   screen_manager.load(std::make_shared<HomeScreen>());
 }
 
 void NameCardScreen::openMenu() {
@@ -86,10 +125,11 @@ void NameCardScreen::openMenu() {
         lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_column(row2, 10, 0);
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row2, LUCIDE_HOME, "Home", [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-            screen_manager.pop();
-        });
+        if (nav_ == Nav::Back) {
+            button(row2, LUCIDE_ARROW_LEFT, "Back", [this](lv_event_t*) { leave(); });
+        } else {
+            button(row2, LUCIDE_HOME, "Home", [this](lv_event_t*) { leave(); });
+        }
         lv_ver_separator_create(row2);
         button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {});
         lv_ver_separator_create(row2);

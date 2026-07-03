@@ -21,6 +21,13 @@ Scripts that exercise SD see the host directory the redirect points at
 (`SIMULATOR_SDCARD_PATH`, default `simulator/sdcard` — gitignored except a
 `.gitkeep`, so stage fixtures there). See the SD card seam in the root `CLAUDE.md`.
 
+NVS (idf_compat's JSON-file store) defaults to `nvs_data.json` in the cwd for
+interactive runs; headless runs use `build/nvs_headless.json`, deleted at start,
+so scripted runs never inherit state (a fresh run boots to Home, not a resumed
+card). To test resume, point `SIMULATOR_NVS_PATH` at a prepared file — namespace
+`lastcard`, key `src` `"01"` (My Card) or `"02"` + `path` (hex bytes of the
+NUL-terminated SD path).
+
 The capture is written in the configured viewing orientation: it applies the SDL
 host-view rotation, which headless can only get from the build-time
 `SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire

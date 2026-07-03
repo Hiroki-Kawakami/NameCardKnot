@@ -1,9 +1,19 @@
 #include "NameCardKnot.hpp"
 #include "sim_harness.h"
 #include "lvgl.hpp"
+#include "nvs_flash.h"
+#include <cstdio>
 #include <cstdlib>
 
 extern "C" int main(void) {
+    // Headless verification must not inherit NVS state from interactive runs;
+    // SIMULATOR_NVS_PATH overrides for scripts that test resume.
+    if (const char *nvs_path = getenv("SIMULATOR_NVS_PATH")) {
+        nvs_flash_sim_set_path(nvs_path);
+    } else if (getenv("SIMULATOR_HEADLESS")) {
+        remove("build/nvs_headless.json");
+        nvs_flash_sim_set_path("build/nvs_headless.json");
+    }
     app_entry();
 
     // Scripted UI verification: if SIMULATOR_SCRIPT names a script, the harness

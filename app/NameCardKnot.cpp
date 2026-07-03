@@ -13,7 +13,9 @@
 #include "freertos/semphr.h"
 #include <assert.h>
 #include "HomeScreen.hpp"
+#include "NameCardScreen.hpp"
 #include "MyCardStore.hpp"
+#include "LastCard.hpp"
 
 static const char *TAG = "NameCardKnot";
 
@@ -141,6 +143,27 @@ static void lvgl_init() {
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 }
 
+// Boot resume: reopen the card recorded in NVS, else start at Home. An SD
+// card decodes asynchronously — NameCardScreen polls the loader.
+static std::shared_ptr<Screen> initial_screen() {
+    const auto info = lastcard::load();
+    if (info.source == lastcard::Source::MyCard) {
+        if (auto data = NameCardData::load_cached())
+            return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
+        lastcard::clear();
+    } else if (info.source == lastcard::Source::SdFile && mount_sd_card()) {
+        lv_display_t *disp = lv_display_get_default();
+        imgproc::Options opts;
+        opts.target_w = lv_display_get_horizontal_resolution(disp);
+        opts.target_h = lv_display_get_vertical_resolution(disp);
+        opts.fit = imgproc::Fit::Contain;
+        opts.levels = 16;
+        return std::make_shared<NameCardScreen>(NameCardData::load(info.path, opts),
+                                                NameCardScreen::Nav::Home);
+    }
+    return std::make_shared<HomeScreen>();
+}
+
 bool mount_sd_card() {
     if (!bsp_sd_is_mounted()) {
         esp_err_t err = bsp_sd_mount("/sdcard", NULL);
@@ -162,12 +185,13 @@ void app_entry() {
     bsp_config.touch.task_priority = 6;
     bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
+    bsp_display_clear();   // bring-up doesn't clear
     bsp_rtc_timer_stop();
     lvgl_init();
     mycard::Store::mount();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](){
-        screen_manager.load(std::make_shared<HomeScreen>());
+        screen_manager.load(initial_screen());
     });
 }

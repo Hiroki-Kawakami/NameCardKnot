@@ -253,7 +253,7 @@ void FileBrowserScreen::open(int index) {
         loader_ = data;
         onLoaded_ = [this, data] {
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-            screen_manager.push(std::make_shared<NameCardScreen>(data));
+            screen_manager.push(std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Back));
         };
         openProgress();
     }
