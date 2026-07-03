@@ -15,6 +15,8 @@ struct Resources {
     } icon;
     struct {
         const lv_font_t *lucide_40;
+        const lv_font_t *noto_sans_jp_24;
+        const lv_font_t *noto_sans_jp_32;
         const lv_font_t *noto_sans_jp_48;
     } font;
 };
