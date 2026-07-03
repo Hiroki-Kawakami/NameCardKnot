@@ -8,13 +8,13 @@
       "name": "山田太郎",
       "url": "https://example.com/yamada",
       "message": "はじめまして。よろしくお願いします。",
-      "baseTotalLength": 16302,
+      "baseTotalLength": 17085,
       "assets": [
         {
           "type": 4,
           "flags": 0,
           "subtype": 0,
-          "offset": 1315,
+          "offset": 2018,
           "length": 8556,
           "crc32": 3621290642,
           "sha256": "3bfc5705cc26f279619e2d9fb36bce2a0d683a517c82bc45645003bb006a9a90"
@@ -23,7 +23,7 @@
           "type": 4,
           "flags": 0,
           "subtype": 0,
-          "offset": 10040,
+          "offset": 10743,
           "length": 5429,
           "crc32": 3689167544,
           "sha256": "938e346dbeb69163030317ebd9cada98a65e1a66139b39f7694a4654c8c70a12"
@@ -32,7 +32,7 @@
           "type": 0,
           "flags": 0,
           "subtype": 0,
-          "offset": 15520,
+          "offset": 16223,
           "length": 12,
           "crc32": 3697225436,
           "sha256": "6b0e1c8cc616be88a16bef09ef113a91a3ecceb0f157bae276e200624932912f"
@@ -41,7 +41,7 @@
           "type": 1,
           "flags": 0,
           "subtype": 0,
-          "offset": 15583,
+          "offset": 16286,
           "length": 26,
           "crc32": 1472672236,
           "sha256": "336e57a3a543dd40f6c66d49ba52361cd75e4b7f62bc2fcd9aec396cd6b2530a"
@@ -50,7 +50,7 @@
           "type": 2,
           "flags": 0,
           "subtype": 0,
-          "offset": 15660,
+          "offset": 16363,
           "length": 54,
           "crc32": 1656102733,
           "sha256": "1051289feb38944d1241ca8e64b4a488cb169112e0044a5cfd26f3d30dbcb12d"
@@ -59,7 +59,7 @@
           "type": 5,
           "flags": 0,
           "subtype": 0,
-          "offset": 15765,
+          "offset": 16468,
           "length": 16,
           "crc32": 2191587759,
           "sha256": "fb9808d8ec5b669a11493082a2e79b26a68678011906d71e2a7a0e4213874507"
@@ -68,7 +68,7 @@
           "type": 3,
           "flags": 1,
           "subtype": 0,
-          "offset": 16454,
+          "offset": 17237,
           "length": 21289,
           "crc32": 2736898346,
           "sha256": "ad9582a2d041c58ea2d26b94fe9f31765d891da52265e1fb73c1c0e297218df3"
@@ -82,13 +82,13 @@
       "name": "鬛亜",
       "url": "https://example.com/rare",
       "message": "難しい漢字のテスト",
-      "baseTotalLength": 10608,
+      "baseTotalLength": 11358,
       "assets": [
         {
           "type": 4,
           "flags": 0,
           "subtype": 0,
-          "offset": 1225,
+          "offset": 1895,
           "length": 8556,
           "crc32": 3621290642,
           "sha256": "3bfc5705cc26f279619e2d9fb36bce2a0d683a517c82bc45645003bb006a9a90"
@@ -97,7 +97,7 @@
           "type": 0,
           "flags": 0,
           "subtype": 0,
-          "offset": 9831,
+          "offset": 10501,
           "length": 6,
           "crc32": 375856890,
           "sha256": "999b375a5fc03848fdda0acee91efe1574f77f7cc4334465fc2c7aaf784d20e5"
@@ -106,7 +106,7 @@
           "type": 1,
           "flags": 0,
           "subtype": 0,
-          "offset": 9888,
+          "offset": 10558,
           "length": 24,
           "crc32": 4127684132,
           "sha256": "fee1212acefa9082a0f4f99270182fc1fd146bf337679f26abbfc3f6034d15f3"
@@ -115,7 +115,7 @@
           "type": 2,
           "flags": 0,
           "subtype": 0,
-          "offset": 9963,
+          "offset": 10633,
           "length": 27,
           "crc32": 2451980317,
           "sha256": "01296fca709a89ab0618cddff75d1b4a4dbee1389a5771b04a834b4d3803dee4"
@@ -124,7 +124,7 @@
           "type": 5,
           "flags": 0,
           "subtype": 0,
-          "offset": 10041,
+          "offset": 10711,
           "length": 82,
           "crc32": 2697817927,
           "sha256": "a75f1b5f2d0bb0105e6670268b7686e35063fa23785798e039da540fd238af8f"
@@ -133,7 +133,7 @@
           "type": 3,
           "flags": 1,
           "subtype": 0,
-          "offset": 10760,
+          "offset": 11510,
           "length": 21289,
           "crc32": 2736898346,
           "sha256": "ad9582a2d041c58ea2d26b94fe9f31765d891da52265e1fb73c1c0e297218df3"

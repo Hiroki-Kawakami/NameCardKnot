@@ -8,25 +8,25 @@ struct NckFixture { const char *full; const char *share; const char *name; const
                     const NckFixAsset *assets; };
 
 static const NckFixAsset kFix_basic_assets[] = {
-    {4, 0, 0, 1315, 8556, 0xd7d88292u},
-    {4, 0, 0, 10040, 5429, 0xdbe43ab8u},
-    {0, 0, 0, 15520, 12, 0xdc5f2edcu},
-    {1, 0, 0, 15583, 26, 0x57c731ecu},
-    {2, 0, 0, 15660, 54, 0x62b61f4du},
-    {5, 0, 0, 15765, 16, 0x82a0f9afu},
-    {3, 1, 0, 16454, 21289, 0xa321c12au},
+    {4, 0, 0, 2018, 8556, 0xd7d88292u},
+    {4, 0, 0, 10743, 5429, 0xdbe43ab8u},
+    {0, 0, 0, 16223, 12, 0xdc5f2edcu},
+    {1, 0, 0, 16286, 26, 0x57c731ecu},
+    {2, 0, 0, 16363, 54, 0x62b61f4du},
+    {5, 0, 0, 16468, 16, 0x82a0f9afu},
+    {3, 1, 0, 17237, 21289, 0xa321c12au},
 };
 static const NckFixAsset kFix_glyphs_assets[] = {
-    {4, 0, 0, 1225, 8556, 0xd7d88292u},
-    {0, 0, 0, 9831, 6, 0x16671efau},
-    {1, 0, 0, 9888, 24, 0xf6077624u},
-    {2, 0, 0, 9963, 27, 0x9226401du},
-    {5, 0, 0, 10041, 82, 0xa0cd6f47u},
-    {3, 1, 0, 10760, 21289, 0xa321c12au},
+    {4, 0, 0, 1895, 8556, 0xd7d88292u},
+    {0, 0, 0, 10501, 6, 0x16671efau},
+    {1, 0, 0, 10558, 24, 0xf6077624u},
+    {2, 0, 0, 10633, 27, 0x9226401du},
+    {5, 0, 0, 10711, 82, 0xa0cd6f47u},
+    {3, 1, 0, 11510, 21289, 0xa321c12au},
 };
 
 static const NckFixture kNckFixtures[] = {
-    {"basic.mnc.pdf", "basic.snc.pdf", "山田太郎", "https://example.com/yamada", "はじめまして。よろしくお願いします。", 16302u, 7, kFix_basic_assets},
-    {"glyphs.mnc.pdf", "glyphs.snc.pdf", "鬛亜", "https://example.com/rare", "難しい漢字のテスト", 10608u, 6, kFix_glyphs_assets},
+    {"basic.mnc.pdf", "basic.snc.pdf", "山田太郎", "https://example.com/yamada", "はじめまして。よろしくお願いします。", 17085u, 7, kFix_basic_assets},
+    {"glyphs.mnc.pdf", "glyphs.snc.pdf", "鬛亜", "https://example.com/rare", "難しい漢字のテスト", 11358u, 6, kFix_glyphs_assets},
 };
 static const int kNckFixtureCount = 2;

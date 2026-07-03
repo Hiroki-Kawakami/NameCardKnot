@@ -221,7 +221,7 @@ export default function App() {
 
           <label className="field">
             <span className="field-label">共有メッセージ（任意）</span>
-            <span className="field-help">PDF の確認面では 1 行で表示されます（改行は反映されません）</span>
+            <span className="field-help">PDF の確認面に表示されます（自動折り返し・改行も反映）</span>
             <textarea value={message} rows={4} onChange={(e) => setMessage(e.target.value)} />
           </label>
 

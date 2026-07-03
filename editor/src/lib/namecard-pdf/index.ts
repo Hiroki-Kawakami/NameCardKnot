@@ -21,6 +21,7 @@ import { crc32 } from "./crc32.ts";
 import { encodeFooter, type FooterEntry } from "./footer.ts";
 import { encodeNameGlyphs, type GlyphSet } from "./glyphs.ts";
 import { jpegSize, PdfWriter, pdfLiteral, ucs2beHex } from "./pdf-writer.ts";
+import { layoutSharePage, splitLatinRuns, type ShareFont } from "./share-layout.ts";
 
 export interface NameCardInput {
   name: string;
@@ -48,37 +49,42 @@ function emptyGlyphSet(): GlyphSet {
   };
 }
 
-// Draw one text line, routing ASCII runs through Helvetica (/F1, real
-// proportional widths) and the rest through the CID font (/F2). The CID font
-// has no /W array, so every glyph advances by DW=1000 — correct for full-width
-// CJK but wrong for half-width Latin (a gap per character). Emitting Latin via
-// Helvetica lets each run auto-advance by the right width within one BT.
-function textLine(text: string, size: number, x: number, y: number): string {
+// Draw one text line, routing ASCII runs through the Latin font (real
+// proportional widths) and the rest through the CID font (no /W array, so
+// every glyph advances by DW=1000 — correct for full-width CJK only).
+const LINE_FONTS: Record<ShareFont, { latin: string; cjk: string }> = {
+  body: { latin: "/F1", cjk: "/F2" },
+  title: { latin: "/F3", cjk: "/F4" },
+};
+
+function textLine(text: string, font: ShareFont, size: number, x: number, y: number): string {
+  const f = LINE_FONTS[font];
   const ops = [`BT ${x} ${y} Td`];
-  for (let i = 0; i < text.length; ) {
-    const latin = text.charCodeAt(i) < 0x80;
-    let j = i;
-    while (j < text.length && text.charCodeAt(j) < 0x80 === latin) j++;
-    const run = text.slice(i, j);
-    ops.push(latin ? `/F1 ${size} Tf ${pdfLiteral(run)} Tj` : `/F2 ${size} Tf <${ucs2beHex(run)}> Tj`);
-    i = j;
+  for (const run of splitLatinRuns(text)) {
+    ops.push(
+      run.latin
+        ? `${f.latin} ${size} Tf ${pdfLiteral(run.text)} Tj`
+        : `${f.cjk} ${size} Tf <${ucs2beHex(run.text)}> Tj`,
+    );
   }
   ops.push("ET");
   return ops.join(" ");
 }
 
-// page2 (share) content stream: name (large), URL, message, and share images.
+// page2 (share) content stream: images right-aligned, name/URL/message down
+// the left column (geometry from share-layout.ts, shared with the preview).
 function shareContent(input: NameCardInput, shareSizes: { w: number; h: number }[]): Uint8Array {
+  const layout = layoutSharePage(input.name, input.url, input.message, shareSizes);
   const ops: string[] = [];
-  ops.push(textLine(input.name, 72, 100, PAGE2_H - 120));
-  ops.push(`BT /F1 36 Tf 100 ${PAGE2_H - 200} Td ${pdfLiteral(input.url)} Tj ET`);
-  ops.push(textLine(input.message, 36, 100, PAGE2_H - 280));
-  shareSizes.forEach((s, i) => {
-    const dw = 480;
-    const dh = Math.round((dw * s.h) / s.w);
-    const x = 100 + i * 520;
-    ops.push(`q ${dw} 0 0 ${dh} ${x} 80 cm /S${i} Do Q`);
+  layout.images.forEach((r, i) => {
+    ops.push(`q ${r.w} 0 0 ${r.h} ${r.x} ${r.y} cm /S${i} Do Q`);
+    ops.push(`0.82 G 2 w ${r.x} ${r.y} ${r.w} ${r.h} re S`);
   });
+  const rule = layout.rule;
+  ops.push(`0 g ${rule.x} ${rule.y} ${rule.w} ${rule.h} re f`);
+  for (const t of layout.texts) {
+    ops.push(`q ${t.gray} g ${textLine(t.text, t.font, t.size, t.x, t.y)} Q`);
+  }
   return utf8Bytes(ops.join("\n") + "\n");
 }
 
@@ -103,6 +109,10 @@ function buildBase(p: PdfWriter, input: NameCardInput): Base {
   const fType0 = p.allocObj();
   const cidFont = p.allocObj();
   const fontDesc = p.allocObj();
+  const fHelvB = p.allocObj();
+  const fType0G = p.allocObj();
+  const cidFontG = p.allocObj();
+  const fontDescG = p.allocObj();
   const shares = input.shares ?? [];
   const shareObjs = shares.map(() => p.allocObj());
   const nameObj = p.allocObj();
@@ -119,7 +129,8 @@ function buildBase(p: PdfWriter, input: NameCardInput): Base {
   p.dictObj(
     page,
     `<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 ${PAGE2_W} ${PAGE2_H}]` +
-      ` /Resources << /Font << /F1 ${fHelv} 0 R /F2 ${fType0} 0 R >> /XObject << ${xobjDict} >> >>` +
+      ` /Resources << /Font << /F1 ${fHelv} 0 R /F2 ${fType0} 0 R /F3 ${fHelvB} 0 R /F4 ${fType0G} 0 R >>` +
+      ` /XObject << ${xobjDict} >> >>` +
       ` /Contents ${content} 0 R >>`,
   );
   p.streamObj(content, "", contentBytes);
@@ -139,6 +150,23 @@ function buildBase(p: PdfWriter, input: NameCardInput): Base {
     fontDesc,
     `<< /Type /FontDescriptor /FontName /Ryumin-Light /Flags 4 /FontBBox [-100 -250 1100 900]` +
       ` /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>`,
+  );
+  p.dictObj(fHelvB, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`);
+  p.dictObj(
+    fType0G,
+    `<< /Type /Font /Subtype /Type0 /BaseFont /GothicBBB-Medium /Encoding /UniJIS-UCS2-H` +
+      ` /DescendantFonts [${cidFontG} 0 R] >>`,
+  );
+  p.dictObj(
+    cidFontG,
+    `<< /Type /Font /Subtype /CIDFontType0 /BaseFont /GothicBBB-Medium` +
+      ` /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 7 >>` +
+      ` /FontDescriptor ${fontDescG} 0 R >>`,
+  );
+  p.dictObj(
+    fontDescG,
+    `<< /Type /FontDescriptor /FontName /GothicBBB-Medium /Flags 4 /FontBBox [-100 -250 1100 900]` +
+      ` /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 120 >>`,
   );
 
   const entries: FooterEntry[] = [];
