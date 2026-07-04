@@ -404,11 +404,10 @@ caveats: [`docs/gotchas.md`](docs/gotchas.md).
 `app/screens/` holds the `Screen` subclasses; each builds its tree in `build()`
 and is loaded via the `screen_manager`. `app_entry()` picks the first screen
 with `lv_async_call` (onto the LVGL context): a pending `app/BootMessage`
-record (NVS namespace `bootmsg`) takes priority over everything below — it
+record takes priority over everything below — it
 loads `BootMessageScreen` as a modal without clearing the EPD first (only the
 modal rect is driven), and OK returns to the resumed card screen or Home.
-Otherwise, if `app/LastCard` (NVS namespace
-`lastcard`) records a card being displayed — My Card or an SD path, saved by
+Otherwise, if `app/LastCard` records a card being displayed — My Card or an SD path, saved by
 `NameCardScreen::onAppear` and cleared when the user leaves it — it reopens
 `NameCardScreen` directly (power-off resume, no Home in between); otherwise it
 loads `DateTimeScreen` (`Nav::Boot`) if `bsp_rtc_time_is_valid` comes back

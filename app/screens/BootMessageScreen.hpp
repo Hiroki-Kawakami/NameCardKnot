@@ -5,7 +5,7 @@
 
 #pragma once
 #include "screen_manager.hpp"
-#include "BootMessage.hpp"
+#include "Nvs.hpp"
 #include <functional>
 #include <string>
 

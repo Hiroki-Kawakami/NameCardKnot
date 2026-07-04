@@ -4,14 +4,35 @@
  */
 
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string>
 
 class NameCardData;
 
-// Which card NameCardScreen is showing, persisted in NVS so boot can reopen it
-// directly (power-off resume). Saved on screen appear, cleared when the user
-// leaves the screen.
+// All persisted app state lives in one NVS store (single namespace, keys ≤15
+// chars and unique across the domains below). The typed get/set helpers are
+// internal to Nvs.cpp; callers use these domain APIs.
+
+// One-shot "show a message at next boot" record. `id` selects the UI
+// BootMessageScreen builds; `param` is one free-form string argument.
+namespace bootmsg {
+
+enum class Id : uint32_t { None = 0, HotKnotShareFailed = 1, HotKnotReceiveFailed = 2 };
+
+struct Info {
+    Id id = Id::None;
+    std::string param;
+};
+
+void save(Id id, const std::string &param);
+Info take();
+void clear();
+
+}  // namespace bootmsg
+
+// Which card NameCardScreen is showing, persisted so boot can reopen it directly
+// (power-off resume). Saved on screen appear, cleared when the user leaves.
 namespace lastcard {
 
 enum class Source : uint8_t { None = 0, MyCard = 1, SdFile = 2 };
@@ -47,3 +68,14 @@ void set_clean_resume(bool clean_resume);
 bool clean_resume();
 
 }  // namespace lastcard
+
+// Persisted user preferences. Add a setting as an accessor pair here, defined
+// over the internal typed helpers in Nvs.cpp.
+namespace settings {
+
+bool share_receive_return();          // ShareScreen "Also receive their card in return"
+void set_share_receive_return(bool value);
+bool receive_send_return();           // ReceiveScreen "Also send my card in return"
+void set_receive_send_return(bool value);
+
+}  // namespace settings

@@ -5,7 +5,7 @@
 
 #include "Power.hpp"
 #include "NameCardKnot.hpp"
-#include "LastCard.hpp"
+#include "Nvs.hpp"
 #include "bsp.h"
 #include "lvgl.hpp"
 #include "screen_manager.hpp"

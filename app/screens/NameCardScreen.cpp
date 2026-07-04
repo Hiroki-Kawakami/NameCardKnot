@@ -9,7 +9,7 @@
 #include "ReceiveScreen.hpp"
 #include "ShareScreen.hpp"
 #include "SettingsScreen.hpp"
-#include "LastCard.hpp"
+#include "Nvs.hpp"
 #include "Power.hpp"
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"

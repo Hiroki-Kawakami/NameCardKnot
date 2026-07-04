@@ -6,7 +6,7 @@
 #include "ReceiveScreen.hpp"
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
-#include "Settings.hpp"
+#include "Nvs.hpp"
 #include "screen_manager.hpp"
 #include "resources.h"
 #include "dokan.h"

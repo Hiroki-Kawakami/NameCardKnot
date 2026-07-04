@@ -23,8 +23,7 @@
 #include "DateTimeScreen.hpp"
 #include "BootMessageScreen.hpp"
 #include "CardStore.hpp"
-#include "LastCard.hpp"
-#include "BootMessage.hpp"
+#include "Nvs.hpp"
 #include "Power.hpp"
 
 static const char *TAG = "NameCardKnot";

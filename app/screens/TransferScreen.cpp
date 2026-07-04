@@ -5,7 +5,7 @@
 
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
-#include "LastCard.hpp"
+#include "Nvs.hpp"
 #include "Power.hpp"
 
 #include "esp_log.h"

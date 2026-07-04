@@ -8,7 +8,7 @@
 #include "SharedCardData.hpp"
 #include "NameFont.hpp"
 #include "image_processor.hpp"
-#include "BootMessage.hpp"
+#include "Nvs.hpp"
 #include "bsp.h"
 #include <atomic>
 #include <memory>
