@@ -75,7 +75,12 @@ export default function SharePreview({
     });
 
     ctx.fillStyle = "#000";
-    ctx.fillRect(layout.rule.x, PAGE2_H - layout.rule.y - layout.rule.h, layout.rule.w, layout.rule.h);
+    ctx.fillRect(
+      layout.rule.x,
+      PAGE2_H - layout.rule.y - layout.rule.h,
+      layout.rule.w,
+      layout.rule.h,
+    );
 
     ctx.textBaseline = "alphabetic";
     for (const t of layout.texts) {
@@ -94,7 +99,12 @@ export default function SharePreview({
   return (
     <section className="preview-block">
       <h2>共有ページ（PDF 2ページ目・近似）</h2>
-      <canvas ref={canvasRef} className="share-canvas" width={PAGE2_W} height={PAGE2_H} />
+      <canvas
+        ref={canvasRef}
+        className="share-canvas"
+        width={PAGE2_W}
+        height={PAGE2_H}
+      />
     </section>
   );
 }

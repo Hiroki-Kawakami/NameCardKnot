@@ -6,9 +6,13 @@ import ImagePicker from "./components/ImagePicker";
 import SharePreview, { type ShareImage } from "./components/SharePreview";
 import { type CropState, defaultCrop } from "./lib/crop";
 import { loadDraft, saveDraft } from "./lib/draft";
-import { buildNameGlyphs, missingChars } from "./lib/glyph-raster";
+import { buildNameGlyphs } from "./lib/glyph-raster";
 import { cropJpeg, imageFromJpeg } from "./lib/image-export";
-import { buildNameCardPdf, buildSharePdf, parseNameCard } from "./lib/namecard-pdf";
+import {
+  buildNameCardPdf,
+  buildSharePdf,
+  parseNameCard,
+} from "./lib/namecard-pdf";
 import { DISPLAY_H, DISPLAY_W, SHARE_H, SHARE_W } from "./lib/targets";
 
 const fitCrop = (): CropState => ({ mode: "fit", x: 0.5, y: 0.5, zoom: 1 });
@@ -18,8 +22,12 @@ export default function App() {
   const [name, setName] = useState(draft?.name ?? "");
   const [url, setUrl] = useState(draft?.url ?? "");
   const [message, setMessage] = useState(draft?.message ?? "");
-  const [share1SameAsDisplay, setShare1SameAsDisplay] = useState(draft?.share1SameAsDisplay ?? true);
-  const [displayImage, setDisplayImage] = useState<HTMLImageElement | null>(null);
+  const [share1SameAsDisplay, setShare1SameAsDisplay] = useState(
+    draft?.share1SameAsDisplay ?? true,
+  );
+  const [displayImage, setDisplayImage] = useState<HTMLImageElement | null>(
+    null,
+  );
   const [displayCrop, setDisplayCrop] = useState<CropState>(defaultCrop());
   const [share1Image, setShare1Image] = useState<HTMLImageElement | null>(null);
   const [share1Crop, setShare1Crop] = useState<CropState>(defaultCrop());
@@ -34,17 +42,15 @@ export default function App() {
     saveDraft({ name, url, message, share1SameAsDisplay });
   }, [name, url, message, share1SameAsDisplay]);
 
-  const supplementChars = useMemo(() => missingChars(name), [name]);
   const urlWarning =
     url.trim() !== "" && !/^https?:\/\//i.test(url.trim())
       ? "http(s):// で始まっていません。デバイスの QR コードが正しく機能しない可能性があります"
       : null;
 
   const problems: string[] = [];
-  if (name.trim() === "") problems.push("名前を入力");
-  if (!displayImage) problems.push("表示用画像を選択");
-  if (!share1SameAsDisplay && !share1Image)
-    problems.push("共有用画像 1 を選択（または「表示用と同じ」をチェック）");
+  if (name.trim() === "") problems.push("名前");
+  if (!displayImage) problems.push("表示用画像");
+  if (!share1SameAsDisplay && !share1Image) problems.push("共有用画像 1");
   const canSave = problems.length === 0 && !busy;
 
   const shares: ShareImage[] = useMemo(() => {
@@ -55,7 +61,15 @@ export default function App() {
     if (s1) out.push(s1);
     if (share2Image) out.push({ image: share2Image, crop: share2Crop });
     return out;
-  }, [share1SameAsDisplay, displayImage, displayCrop, share1Image, share1Crop, share2Image, share2Crop]);
+  }, [
+    share1SameAsDisplay,
+    displayImage,
+    displayCrop,
+    share1Image,
+    share1Crop,
+    share2Image,
+    share2Crop,
+  ]);
 
   const onSave = async (sharePdf: boolean) => {
     if (!displayImage || !canSave) return;
@@ -63,23 +77,38 @@ export default function App() {
     setError(null);
     setNotice(null);
     try {
-      const display = await cropJpeg(displayImage, displayCrop, DISPLAY_W, DISPLAY_H);
+      const display = await cropJpeg(
+        displayImage,
+        displayCrop,
+        DISPLAY_W,
+        DISPLAY_H,
+      );
       const shareJpegs = await Promise.all(
         shares.map((s) => cropJpeg(s.image, s.crop, SHARE_W, SHARE_H)),
       );
       const nameGlyphs = await buildNameGlyphs(name);
 
       const build = sharePdf ? buildSharePdf : buildNameCardPdf;
-      const pdf = build({ name, url, message, display, shares: shareJpegs, nameGlyphs });
+      const pdf = build({
+        name,
+        url,
+        message,
+        display,
+        shares: shareJpegs,
+        nameGlyphs,
+      });
       const blob = new Blob([new Uint8Array(pdf)], { type: "application/pdf" });
-      const safeName = name.trim().replace(/[\\/:*?"<>|\x00-\x1f]/g, "_") || "namecard";
+      const safeName =
+        name.trim().replace(/[\\/:*?"<>|\x00-\x1f]/g, "_") || "namecard";
       const ext = sharePdf ? "snc.pdf" : "mnc.pdf";
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `${safeName}.${ext}`;
       a.click();
       URL.revokeObjectURL(a.href);
-      setNotice(`${safeName}.${ext} を保存しました。SD カードにコピーしてデバイスで開けます。`);
+      setNotice(
+        `${safeName}.${ext} を保存しました。SD カードにコピーしてデバイスで開けます。`,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -100,11 +129,18 @@ export default function App() {
       setDisplayImage(card.display ? await imageFromJpeg(card.display) : null);
       setDisplayCrop(fitCrop());
       setShare1SameAsDisplay(false);
-      setShare1Image(card.shares[0] ? await imageFromJpeg(card.shares[0]) : null);
+      setShare1Image(
+        card.shares[0] ? await imageFromJpeg(card.shares[0]) : null,
+      );
       setShare1Crop(fitCrop());
-      setShare2Image(card.shares[1] ? await imageFromJpeg(card.shares[1]) : null);
+      setShare2Image(
+        card.shares[1] ? await imageFromJpeg(card.shares[1]) : null,
+      );
       setShare2Crop(fitCrop());
-      if (!card.display) setNotice("共有専用ファイル（.snc.pdf）のため表示用画像は含まれていません。");
+      if (!card.display)
+        setNotice(
+          "共有専用ファイル（.snc.pdf）のため表示用画像は含まれていません。",
+        );
     } catch (e) {
       setError(
         `「${file.name}」を読み込めませんでした（NameCardKnot のファイルではない可能性があります）: ` +
@@ -117,7 +153,11 @@ export default function App() {
     <main>
       <header>
         <h1>NameCardKnot Editor</h1>
-        <button type="button" className="secondary" onClick={() => openRef.current?.click()}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => openRef.current?.click()}
+        >
           .mnc.pdf を開く
         </button>
         <input
@@ -135,7 +175,11 @@ export default function App() {
       {error && (
         <div className="banner error" role="alert">
           <span>{error}</span>
-          <button type="button" aria-label="閉じる" onClick={() => setError(null)}>
+          <button
+            type="button"
+            aria-label="閉じる"
+            onClick={() => setError(null)}
+          >
             ✕
           </button>
         </div>
@@ -143,7 +187,11 @@ export default function App() {
       {notice && (
         <div className="banner notice">
           <span>{notice}</span>
-          <button type="button" aria-label="閉じる" onClick={() => setNotice(null)}>
+          <button
+            type="button"
+            aria-label="閉じる"
+            onClick={() => setNotice(null)}
+          >
             ✕
           </button>
         </div>
@@ -153,17 +201,15 @@ export default function App() {
         <div className="form">
           <label className="field">
             <span className="field-label">名前</span>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
-            {supplementChars.length > 0 && (
-              <span className="field-help">
-                内蔵フォントにない文字を外字として埋め込みます: {supplementChars.join(" ")}
-              </span>
-            )}
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </label>
 
           <label className="field">
             <span className="field-label">URL（任意）</span>
-            <span className="field-help">デバイスの Info 画面で QR コードとして表示されます</span>
             <input
               type="url"
               value={url}
@@ -175,7 +221,7 @@ export default function App() {
 
           <ImagePicker
             label="表示用画像"
-            help="デバイスの画面（540×960・モノクロ）に表示される名刺の表面です"
+            help="デバイスの画面に表示する画像 (540×960)"
             image={displayImage}
             crop={displayCrop}
             targetW={DISPLAY_W}
@@ -187,7 +233,7 @@ export default function App() {
 
           <div className="field">
             <span className="field-label">共有用画像 1</span>
-            <span className="field-help">共有相手に渡る PDF の確認面に載る画像です</span>
+            <span className="field-help">共有相手に転送する画像 (405×720)</span>
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -223,24 +269,38 @@ export default function App() {
 
           <label className="field">
             <span className="field-label">共有メッセージ（任意）</span>
-            <span className="field-help">PDF の確認面に表示されます（自動折り返し・改行も反映）</span>
-            <textarea value={message} rows={4} onChange={(e) => setMessage(e.target.value)} />
+            <textarea
+              value={message}
+              rows={4}
+              onChange={(e) => setMessage(e.target.value)}
+            />
           </label>
 
           <div className="save-area">
             {/* debug: Alt+Shift+click saves the share-only .snc.pdf */}
-            <button type="button" onClick={(e) => onSave(e.altKey && e.shiftKey)} disabled={!canSave}>
-              {busy ? "生成中…" : "保存（.mnc.pdf）"}
+            <button
+              type="button"
+              onClick={(e) => onSave(e.altKey && e.shiftKey)}
+              disabled={!canSave}
+            >
+              {busy ? "生成中…" : "保存"}
             </button>
             {problems.length > 0 && (
-              <span className="field-help">あと必要な項目: {problems.join(" / ")}</span>
+              <span className="field-help">
+                必須項目: {problems.join(" / ")}
+              </span>
             )}
           </div>
         </div>
 
         <aside className="preview-pane">
           <DevicePreview image={displayImage} crop={displayCrop} />
-          <SharePreview name={name} url={url} message={message} shares={shares} />
+          <SharePreview
+            name={name}
+            url={url}
+            message={message}
+            shares={shares}
+          />
         </aside>
       </div>
     </main>

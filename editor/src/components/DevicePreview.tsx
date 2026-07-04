@@ -34,10 +34,12 @@ export default function DevicePreview({
 
   return (
     <section className="preview-block">
-      <h2>デバイス表示（モノクロ変換後）</h2>
+      <h2>プレビュー</h2>
       <div className="device-frame">
         <canvas ref={canvasRef} width={PAGE1_W} height={PAGE1_H} />
-        {!image && <span className="preview-empty">表示用画像が未選択です</span>}
+        {!image && (
+          <span className="preview-empty">表示用画像が未選択です</span>
+        )}
       </div>
     </section>
   );

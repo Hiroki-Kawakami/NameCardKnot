@@ -31,7 +31,12 @@ export default function ImagePicker({
 }: ImagePickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; crop: CropState } | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    crop: CropState;
+  } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -49,7 +54,9 @@ export default function ImagePicker({
       onImage(await readImageFile(file));
       onCrop(defaultCrop());
     } catch {
-      onError(`「${file.name}」を読み込めませんでした（このブラウザが対応していない形式かもしれません）`);
+      onError(
+        `「${file.name}」を読み込めませんでした（このブラウザが対応していない形式かもしれません）`,
+      );
     }
   };
 
@@ -73,13 +80,19 @@ export default function ImagePicker({
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!image || crop.mode !== "cover") return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, crop };
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      crop,
+    };
   };
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId || !image) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const s = Math.max(targetW / image.width, targetH / image.height) * crop.zoom;
+    const s =
+      Math.max(targetW / image.width, targetH / image.height) * crop.zoom;
     const overX = image.width * s - targetW;
     const overY = image.height * s - targetH;
     // client px -> canvas px -> fraction of the pannable overflow
@@ -87,8 +100,18 @@ export default function ImagePicker({
     const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
     onCrop({
       ...drag.crop,
-      x: overX > 0 ? clamp01(drag.crop.x - ((e.clientX - drag.startX) * toCanvas) / overX) : drag.crop.x,
-      y: overY > 0 ? clamp01(drag.crop.y - ((e.clientY - drag.startY) * toCanvas) / overY) : drag.crop.y,
+      x:
+        overX > 0
+          ? clamp01(
+              drag.crop.x - ((e.clientX - drag.startX) * toCanvas) / overX,
+            )
+          : drag.crop.x,
+      y:
+        overY > 0
+          ? clamp01(
+              drag.crop.y - ((e.clientY - drag.startY) * toCanvas) / overY,
+            )
+          : drag.crop.y,
     });
   };
   const endDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -120,7 +143,9 @@ export default function ImagePicker({
         <div className="picker" {...dropProps}>
           <canvas
             ref={canvasRef}
-            className={"picker-canvas" + (crop.mode === "cover" ? " pannable" : "")}
+            className={
+              "picker-canvas" + (crop.mode === "cover" ? " pannable" : "")
+            }
             width={targetW}
             height={targetH}
             onPointerDown={onPointerDown}
@@ -154,7 +179,9 @@ export default function ImagePicker({
                   max={3}
                   step={0.01}
                   value={crop.zoom}
-                  onChange={(e) => onCrop({ ...crop, zoom: Number(e.target.value) })}
+                  onChange={(e) =>
+                    onCrop({ ...crop, zoom: Number(e.target.value) })
+                  }
                 />
               </label>
             )}
@@ -162,11 +189,19 @@ export default function ImagePicker({
               <button type="button" className="small" onClick={openPicker}>
                 変更
               </button>
-              <button type="button" className="small" onClick={() => onImage(null)}>
+              <button
+                type="button"
+                className="small"
+                onClick={() => onImage(null)}
+              >
                 削除
               </button>
             </div>
-            {crop.mode === "cover" && <span className="field-help">プレビューをドラッグして位置を調整</span>}
+            {crop.mode === "cover" && (
+              <span className="field-help">
+                プレビューをドラッグして位置を調整
+              </span>
+            )}
           </div>
         </div>
       )}
