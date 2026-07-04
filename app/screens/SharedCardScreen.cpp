@@ -5,6 +5,7 @@
 
 #include "SharedCardScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Nvs.hpp"
 #include "HomeScreen.hpp"
 #include "NameCardScreen.hpp"
 #include "lv_image_adapter.hpp"
@@ -158,7 +159,9 @@ void SharedCardScreen::buildButtonBar() {
             screen_manager.pop();
         });
     } else {
-        button(back_bar, LUCIDE_HOME, "Home", [](lv_event_t*) {
+        bool resumes_card = lastcard::load().source != lastcard::Source::None;
+        button(back_bar, resumes_card ? LUCIDE_ARROW_LEFT : LUCIDE_HOME,
+               resumes_card ? "Back" : "Home", [](lv_event_t*) {
             auto card = make_resumed_card_screen();
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             if (card) screen_manager.load(card);

@@ -17,7 +17,8 @@ class SharedCardScreen : public Screen {
 public:
     // Back: pushed from GalleryScreen, pops back to it.
     // Received: loaded straight onto the stack after a boot-time receive; the
-    // button resumes the lastcard NameCardScreen if one is still recorded, else Home.
+    // button resumes the lastcard NameCardScreen if one is still recorded
+    // (shown as Back), else Home.
     enum class Nav { Back, Received };
 
     SharedCardScreen(std::shared_ptr<SharedCardData> data, Nav nav);
