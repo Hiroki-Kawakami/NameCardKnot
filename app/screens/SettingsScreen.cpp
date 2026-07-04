@@ -7,34 +7,139 @@
 #include "DateTimeScreen.hpp"
 #include "GrayscaleTestScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "resources.h"
 
-static lv_obj_t *row_create(lv_obj_t *parent, const char *title, std::function<void(lv_event_t*)> on_click) {
-    auto row = lv_button_create(parent);
+// ---- Editable about-page content ------------------------------------------
+namespace {
+constexpr const char kAppName[] = "Name Card Knot";
+constexpr const char kAuthorName[] = "Hiroki Kawakami";
+constexpr const char kRepoUrl[] = "https://github.com/Hiroki-Kawakami/NameCardKnot";
+}  // namespace
+
+static lv_obj_t *info_row_create(lv_obj_t *parent, const char *icon, const char *title, const char *value,
+                                 std::function<void(lv_event_t*)> on_click) {
+    lv_obj_t *row = lv_button_create(parent);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, LV_PCT(100), 77);
-    lv_obj_set_style_pad_hor(row, 12, 0);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_border_width(row, 2, 0);
+    lv_obj_set_style_pad_all(row, 15, 0);
+    lv_obj_set_style_pad_column(row, 10, 0);
     lv_obj_set_style_border_color(row, lv_color_white(), 0);
     lv_obj_set_style_border_color(row, lv_color_black(), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_add_event_fn(row, LV_EVENT_CLICKED, on_click);
 
-    auto label = lv_label_create(row);
-    lv_label_set_text(label, title);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    lv_obj_t *icon_label = lv_label_create(row);
+    lv_label_set_text(icon_label, icon);
+    lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
+
+    lv_obj_t *col = lv_container_create(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(col, 2, 0);
+    lv_obj_set_flex_grow(col, 1);
+
+    lv_obj_t *title_label = lv_label_create(col);
+    lv_label_set_text(title_label, title);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0);
+
+    if (value && value[0]) {
+        lv_obj_t *value_label = lv_label_create(col);
+        lv_label_set_text(value_label, value);
+    }
     return row;
+}
+
+static lv_obj_t *settings_button_create(lv_obj_t *parent, const char *icon, const char *title,
+                                        std::function<void(lv_event_t*)> on_click) {
+    auto button = lv_button_create(parent);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_style_border_color(button, lv_color_black(), 0);
+    lv_obj_set_style_border_width(button, 1, 0);
+    lv_obj_set_style_border_width(button, 2, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_all(button, 15, 0);
+    lv_obj_set_style_pad_all(button, 14, LV_STATE_PRESSED);
+    lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(button, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(button, 10, 0);
+    lv_obj_set_width(button, LV_PCT(100));
+    lv_obj_add_event_fn(button, LV_EVENT_CLICKED, on_click);
+
+    lv_obj_t *icon_label = lv_label_create(button);
+    lv_label_set_text(icon_label, icon);
+    lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
+
+    lv_obj_t *title_label = lv_label_create(button);
+    lv_label_set_text(title_label, title);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0);
+
+    return button;
 }
 
 void SettingsScreen::build() {
     createNavigation("Settings");
+    lv_obj_set_style_border_width(navigation_, 0, 0);
+    lv_obj_set_style_pad_hor(contents_, 20, 0);
+    lv_obj_set_style_pad_bottom(contents_, 20, 0);
+    lv_obj_set_style_pad_row(contents_, 20, 0);
 
-    row_create(contents_, "Date & Time", [](lv_event_t*) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    // ---- App identity block ----
+    {
+        lv_obj_t *block = lv_container_create(contents_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_size(block, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_style_border_width(block, 1, 0);
+        lv_obj_set_flex_align(block, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_top(block, 30, 0);
+
+        lv_obj_t *mark = lv_label_create(block);
+        lv_label_set_text_fmt(mark, "%s%s", LUCIDE_CONTACT_ROUND, LUCIDE_NFC);
+        lv_obj_set_style_text_font(mark, R.font.lucide_40, 0);
+
+        lv_obj_t *name = lv_label_create(block);
+        lv_label_set_text(name, kAppName);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_48, 0);
+        lv_obj_set_style_margin_ver(name, 15, 0);
+
+        lv_obj_t *version = lv_label_create(block);
+        lv_label_set_text(version, "v0.1.0");
+        lv_obj_set_style_text_font(version, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_margin_bottom(version, 25, 0);
+
+        lv_hor_separator_create(block, 10);
+        info_row_create(block, LUCIDE_CODE, "Repository", kRepoUrl, [this](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+            auto card = lv_modal_open(root_);
+
+            lv_obj_t *qr = lv_qrcode_create(card);
+            lv_obj_set_width(qr, LV_PCT(100));
+            lv_qrcode_set_size(qr, 300);
+            lv_qrcode_set_dark_color(qr, lv_color_black());
+            lv_qrcode_set_light_color(qr, lv_color_white());
+            lv_qrcode_update(qr, kRepoUrl, sizeof(kRepoUrl) - 1);
+
+            lv_obj_t *url = lv_label_create(card);
+            lv_label_set_text(url, kRepoUrl);
+            lv_obj_set_width(url, LV_PCT(100));
+            lv_obj_set_style_pad_ver(url, 10, 0);
+            lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
+
+            lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+                lv_async_call([card]() {
+                    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+                    lv_modal_close(card);
+                });
+            });
+        });
+        lv_hor_separator_create(block, 10);
+        info_row_create(block, LUCIDE_USER, kAuthorName, "Developer", [](lv_event_t*) {});
+    }
+
+    settings_button_create(contents_, LUCIDE_CLOCK, "Date & Time", [](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         screen_manager.push(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Back));
     });
-    lv_hor_separator_create(contents_);
-    row_create(contents_, "Grayscale Test", [](lv_event_t*) {
-        screen_manager.push(std::make_shared<GrayscaleTestScreen>());
-    });
+    settings_button_create(contents_, LUCIDE_LANGUAGES, "Languages", [](lv_event_t*) {});
+    settings_button_create(contents_, LUCIDE_SCALE, "Acknowledgements", [](lv_event_t*) {});
 }
