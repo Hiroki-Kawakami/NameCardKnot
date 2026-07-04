@@ -14,6 +14,7 @@
 #include <assert.h>
 #include "HomeScreen.hpp"
 #include "NameCardScreen.hpp"
+#include "DateTimeScreen.hpp"
 #include "CardStore.hpp"
 #include "LastCard.hpp"
 #include "Power.hpp"
@@ -221,7 +222,12 @@ void app_entry() {
             }
         } else {
             bsp_display_clear();
-            screen_manager.load(std::make_shared<HomeScreen>());
+            bool valid = false;
+            if (bsp_rtc_time_is_valid(&valid) == ESP_OK && !valid) {
+                screen_manager.load(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Boot));
+            } else {
+                screen_manager.load(std::make_shared<HomeScreen>());
+            }
         }
         power::start();
     }, nullptr);

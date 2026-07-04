@@ -42,6 +42,10 @@ The card flash stores are backed by `simulator/mycard.img` / `simulator/lastcard
 (`SIMULATOR_MYCARD_PATH` / `SIMULATOR_LASTCARD_PATH` override — point lastcard at a
 temp file to test the sleep-entry cache and the SD-less restore).
 
+The sim RTC starts valid (host clock); `SIMULATOR_RTC_INVALID=1` starts it
+invalid instead, to exercise the boot-time Date & Time gate:
+`SIMULATOR_RTC_INVALID=1 nix develop -c ./run.sh simverify simulator/verify/datetime.txt`.
+
 The capture is written in the configured viewing orientation: it applies the SDL
 host-view rotation, which headless can only get from the build-time
 `SDL_PANEL_DEFAULT_ROTATION` / `SIM_DEFAULT_ROTATION` (the r/l keys never fire

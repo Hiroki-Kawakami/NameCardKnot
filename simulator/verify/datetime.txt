@@ -1,0 +1,25 @@
+# Boot with an invalid RTC -> Date & Time screen; adjust a couple of fields,
+# commit, then reach the same screen again via Settings (with Cancel) and back out.
+# Run: SIMULATOR_RTC_INVALID=1 nix develop -c ./run.sh simverify simulator/verify/datetime.txt
+#
+# tap takes raw panel coords (960x540); the app renders rotated 90 deg to a
+# 540x960 logical screen, so panel_x = logical_y, panel_y = 540 - logical_x.
+settle
+capture simulator/verify/out/datetime_boot.jpg
+tap 302 414                                      # Year "+"
+tap 406 126                                      # Day "-"
+settle
+capture simulator/verify/out/datetime_adjusted.jpg
+tap 708 270                                      # OK (Nav::Boot -> Home)
+settle
+capture simulator/verify/out/home.jpg
+tap 844 147                                      # Home: "Settings"
+settle
+capture simulator/verify/out/settings.jpg
+tap 139 270                                      # Settings: "Date & Time"
+settle
+capture simulator/verify/out/datetime_cancel.jpg
+tap 708 383                                      # Cancel
+settle
+capture simulator/verify/out/settings_after_cancel.jpg
+quit

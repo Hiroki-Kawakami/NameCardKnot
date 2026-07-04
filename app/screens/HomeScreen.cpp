@@ -14,12 +14,19 @@
 #include "lv_image_adapter.hpp"
 #include "ShareScreen.hpp"
 #include "ReceiveScreen.hpp"
-#include "GrayscaleTestScreen.hpp"
+#include "SettingsScreen.hpp"
+#include <cstdio>
 
 void HomeScreen::build() {
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(root_, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(root_, 20, 0);
+
+    date_label_ = lv_label_create(root_);
+    lv_obj_add_flag(date_label_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(date_label_, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(date_label_, &lv_font_montserrat_24, 0);
+    refreshDate();
 
     { // Title
         lv_obj_t *title = lv_label_create(root_);
@@ -30,7 +37,7 @@ void HomeScreen::build() {
         lv_label_set_text(version, "v0.1.0");
         lv_obj_set_style_text_font(version, &lv_font_montserrat_24, 0);
 
-        lv_obj_set_style_pad_top(title, 40, 0);
+        lv_obj_set_style_pad_top(title, 60, 0);
         lv_obj_set_style_pad_bottom(version, 40, 0);
     }
 
@@ -90,7 +97,8 @@ void HomeScreen::build() {
         });
         lv_ver_separator_create(row2);
         button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {
-            screen_manager.push(std::make_shared<GrayscaleTestScreen>());
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            screen_manager.push(std::make_shared<SettingsScreen>());
         });
     }
 }
@@ -98,6 +106,20 @@ void HomeScreen::build() {
 void HomeScreen::onAppear() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     refreshMyCard();  // a just-finished import may have replaced the card (new mmap)
+    refreshDate();
+}
+
+void HomeScreen::refreshDate() {
+    bsp_rtc_datetime_t dt{};
+    bool valid = false;
+    bool ok = bsp_rtc_get_time(&dt) == ESP_OK && bsp_rtc_time_is_valid(&valid) == ESP_OK && valid;
+    if (ok) {
+        char buf[16];
+        snprintf(buf, sizeof buf, "%04u/%02u/%02u", dt.year, dt.month, dt.day);
+        lv_label_set_text(date_label_, buf);
+    } else {
+        lv_label_set_text(date_label_, "");
+    }
 }
 
 void HomeScreen::onDisappear() {

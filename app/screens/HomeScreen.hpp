@@ -25,8 +25,10 @@ private:
     cardstore::MappedImage preview_map_;  // BLOB_PREVIEW mapping (preview_dsc_ points in)
     lv_image_dsc_t preview_dsc_{};
     CardNameLabel name_;  // outlives the name label it builds
+    lv_obj_t *date_label_ = nullptr;
 
     void refreshMyCard();
+    void refreshDate();
     void importMyCard();
     void myCardButtonCreate(lv_obj_t *parent);
     void noCardButtonCreate(lv_obj_t *parent);

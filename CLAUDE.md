@@ -297,8 +297,10 @@ driver's INT handler stops a one-shot on the expiry it services).
   still asserts in hardware (use it to wake from sleep, then `timer_is_expired` +
   `timer_stop` on boot). RX8130 (`devices/rx8130/`) is the future second chip; the
   seam is chip-agnostic so a new board just calls its `*_rtc_create()`.
-- **simulator** (`simulator/rtc_sim.c`): `get_time` reads the host clock, `set_time`
-  is a no-op, timer ops absent. Registered by the board's `*_sim.c`.
+- **simulator** (`simulator/rtc_sim.c`): `get_time` reads the host clock offset by
+  the last `set_time` (which recomputes the offset); starts valid, or invalid if
+  `SIMULATOR_RTC_INVALID` is set (non-`"0"`) — see [`docs/testing.md`](docs/testing.md).
+  Timer ops absent. Registered by the board's `*_sim.c`.
 
 SoC↔chip time sync (SNTP, restoring system time after VSYS drop) is **app policy,
 not BSP** — the BSP exposes the chip mechanism (`time_is_valid` included) and the
@@ -377,8 +379,11 @@ and is loaded via the `screen_manager`. `app_entry()` picks the first screen
 with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
 `lastcard`) records a card being displayed — My Card or an SD path, saved by
 `NameCardScreen::onAppear` and cleared when the user leaves it — it reopens
-`NameCardScreen` directly (power-off resume, no Home in between), else
-`HomeScreen`. An SD card restores from the lastcard flash cache when NVS `cpath`
+`NameCardScreen` directly (power-off resume, no Home in between); otherwise it
+loads `DateTimeScreen` (`Nav::Boot`) if `bsp_rtc_time_is_valid` comes back
+`ESP_OK` and false (RTC never set), else `HomeScreen` (an RTC-read error also
+falls through to `HomeScreen` — no provider shouldn't force the date screen).
+An SD card restores from the lastcard flash cache when NVS `cpath`
 matches (`NameCardData::load_lastcard`: MMIO display blob, else a sync decode of
 the cached PDF — no SD needed), falling back to the SD file. The NVS `clean`
 flag (`lastcard::clean_resume`) records "the glass shows a fully-rendered card
@@ -393,7 +398,14 @@ does a full-screen clean refresh (`clearDisplay` → white → `QUALITY_ALL` rep
 of the card), so ghosts never accumulate — hence seeding is no longer needed and
 the resume can paint fast without regard to prior on-glass content. Current
 screens:
-`HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`.
+`HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`, `SettingsScreen`,
+`DateTimeScreen`. `HomeScreen` also shows the current date (`bsp_rtc_get_time` +
+`bsp_rtc_time_is_valid`, top-left, refreshed in `build()`/`onAppear()`, blank when
+invalid) and its Settings button pushes `SettingsScreen` (a `NavigationScreen`
+with "Date & Time" and "Grayscale Test" rows). `DateTimeScreen` is a modal-on-white
+Year/Month/Day/Hour/Minute stepper (`Nav::Boot` from the boot gate above, OK-only,
+loads `HomeScreen`; `Nav::Back` from `SettingsScreen`, adds Cancel, pops) that
+computes the weekday (Sakamoto's algorithm) and calls `bsp_rtc_set_time` on OK.
 `FileBrowserScreen` is a `NavigationScreen` that lists the mounted SD directory
 via POSIX `readdir` — folders first, case-insensitive sort, paged 10 rows/screen,
 descending into subdirs via an internal path stack (so `back()` pops the stack

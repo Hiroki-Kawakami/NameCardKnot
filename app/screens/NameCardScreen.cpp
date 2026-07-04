@@ -8,6 +8,7 @@
 #include "HomeScreen.hpp"
 #include "ReceiveScreen.hpp"
 #include "ShareScreen.hpp"
+#include "SettingsScreen.hpp"
 #include "LastCard.hpp"
 #include "Power.hpp"
 #include "lv_image_adapter.hpp"
@@ -233,7 +234,10 @@ void NameCardScreen::buildMenu() {
         button(row2, LUCIDE_HOME, "Home", [this](lv_event_t*) { leave(); });
     }
     lv_ver_separator_create(row2);
-    button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {});
+    button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        screen_manager.push(std::make_shared<SettingsScreen>());
+    });
     lv_ver_separator_create(row2);
     button(row2, LUCIDE_X, "Close", [this](lv_event_t*) { closeMenu(true); });
 }
