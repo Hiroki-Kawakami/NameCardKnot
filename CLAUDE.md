@@ -399,7 +399,7 @@ of the card), so ghosts never accumulate — hence seeding is no longer needed a
 the resume can paint fast without regard to prior on-glass content. Current
 screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`, `SettingsScreen`,
-`DateTimeScreen`. `HomeScreen` also shows the current date (`bsp_rtc_get_time` +
+`DateTimeScreen`, `GalleryScreen`, `SharedCardScreen`. `HomeScreen` also shows the current date (`bsp_rtc_get_time` +
 `bsp_rtc_time_is_valid`, top-left, refreshed in `build()`/`onAppear()`, blank when
 invalid) and its Settings button pushes `SettingsScreen` (a `NavigationScreen`
 with "Date & Time" and "Grayscale Test" rows). `DateTimeScreen` is a modal-on-white
@@ -440,8 +440,24 @@ decoded image and a cached card's mmap blob, blitted through `l8view_fill_lv_dsc
 (`lv_qrcode`) of the url; the name font is a Montserrat → NotoSansJP → embedded
 glyph supplement fallback chain built by `app/NameFont.hpp` (over the
 `app/lv_glyph_font.hpp` adapter: `name_glyphs` blob → runtime `lv_font_t`, A8 mask
-expansion; `NameCardData::name_glyphs()` parses/owns the blob). (Plain `.snc.pdf` —
-share-only, no display image — is not openable yet; a dedicated screen comes later.)
+expansion; `NameCardData::name_glyphs()` parses/owns the blob).
+
+`HomeScreen`'s Gallery button pushes `GalleryScreen`, a `NavigationScreen` listing
+`RECEIVED_CARDS_DIR`'s `*.snc.pdf` by name (`CardNameLabel::load_file`) and received
+time (file mtime — real once `rtc_sync_system_time()` has synced the system clock
+from the RTC), newest first, 8 rows/page; tapping a row opens `SharedCardScreen`
+(`Nav::Back`, pops back), the share-only viewer over `SharedCardData` — name, the
+share image(s) 1:1, and conditional URL/QR, Message, and image-1/2 toggle buttons
+per what the card provides. The receive flow closes the loop:
+`TransferScreen::finalizeReceived` renames the incoming file into
+`RECEIVED_CARDS_DIR` and calls `lastcard::save_received(path)` (a one-shot NVS
+pending-open record), then `terminate()` reboots (`bsp_hw_reset()` — touch is dead
+after a HotKnot session). `app_entry`'s boot lambda consumes
+`lastcard::take_received()` before the lastcard resume check; a still-openable
+card loads `SharedCardScreen(Nav::Received)` directly, whose back button calls
+`make_resumed_card_screen()` (`NameCardKnot.hpp`, the boot resume logic factored
+out of `app_entry`) to reopen the `NameCardScreen` still recorded in lastcard NVS
+if any (e.g. Receive was opened from its menu), else `HomeScreen`.
 
 **Card flash storage** (`app/CardStore`): `cardstore::Store` manages a dedicated
 2MB partition as a custom blob index (PDF + L8 image caches), no filesystem. Two

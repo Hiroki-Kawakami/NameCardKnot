@@ -12,8 +12,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <assert.h>
+#include <ctime>
+#ifdef ESP_PLATFORM
+#include <sys/time.h>
+#endif
 #include "HomeScreen.hpp"
 #include "NameCardScreen.hpp"
+#include "SharedCardScreen.hpp"
+#include "SharedCardData.hpp"
 #include "DateTimeScreen.hpp"
 #include "CardStore.hpp"
 #include "LastCard.hpp"
@@ -176,6 +182,17 @@ static std::shared_ptr<NameCardData> resume_data(const lastcard::Info &info) {
     return nullptr;
 }
 
+std::shared_ptr<NameCardScreen> make_resumed_card_screen() {
+    const auto info = lastcard::load();
+    auto data = resume_data(info);
+    if (data)
+        return std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
+    if (info.source == lastcard::Source::SdFile && mount_sd_card())
+        return std::make_shared<NameCardScreen>(NameCardData::load(info.path, display_opts()),
+                                                 NameCardScreen::Nav::Home);
+    return nullptr;
+}
+
 bool mount_sd_card() {
     if (!bsp_sd_is_mounted()) {
         esp_err_t err = bsp_sd_mount("/sdcard", NULL);
@@ -190,6 +207,26 @@ void unmount_sd_card() {
     bsp_sd_unmount();
 }
 
+void rtc_sync_system_time() {
+#ifdef ESP_PLATFORM
+    bsp_rtc_datetime_t dt{};
+    bool valid = false;
+    if (bsp_rtc_get_time(&dt) != ESP_OK || bsp_rtc_time_is_valid(&valid) != ESP_OK || !valid) return;
+
+    struct tm tm{};
+    tm.tm_year = dt.year - 1900;
+    tm.tm_mon = dt.month - 1;
+    tm.tm_mday = dt.day;
+    tm.tm_hour = dt.hour;
+    tm.tm_min = dt.minute;
+    tm.tm_sec = dt.second;
+    tm.tm_isdst = 0;
+
+    struct timeval tv = { .tv_sec = mktime(&tm), .tv_usec = 0 };
+    settimeofday(&tv, nullptr);
+#endif
+}
+
 void app_entry() {
     bsp_config_t bsp_config = {};
     bsp_config.epd.task_priority = 5;
@@ -198,35 +235,40 @@ void app_entry() {
     bsp_config.touch.task_affinity = 1;
     bsp_init(&bsp_config);
     cardstore::mycard().mount();
+    rtc_sync_system_time();
 
     bsp_rtc_timer_stop();
     lvgl_init();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](void*) {
-        const auto info = lastcard::load();
-        auto data = resume_data(info);
-        std::shared_ptr<NameCardScreen> card;
-        if (data) {
-            card = std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Home);
-        } else if (info.source == lastcard::Source::SdFile && mount_sd_card()) {
-            card = std::make_shared<NameCardScreen>(NameCardData::load(info.path, display_opts()),
-                                                    NameCardScreen::Nav::Home);
+        std::shared_ptr<SharedCardData> received;
+        std::string rpath = lastcard::take_received();
+        if (!rpath.empty() && mount_sd_card()) {
+            auto data = SharedCardData::open(rpath);
+            if (data && data->valid()) received = data;
         }
-        if (card) {
-            card->set_clean_resume(lastcard::clean_resume());
-            screen_manager.load(card);
-            if (lastcard::clean_resume()) {
-                lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
-                card->refreshMenu();
-            }
-        } else {
+
+        if (received) {
             bsp_display_clear();
-            bool valid = false;
-            if (bsp_rtc_time_is_valid(&valid) == ESP_OK && !valid) {
-                screen_manager.load(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Boot));
+            screen_manager.load(std::make_shared<SharedCardScreen>(received, SharedCardScreen::Nav::Received));
+        } else {
+            auto card = make_resumed_card_screen();
+            if (card) {
+                card->set_clean_resume(lastcard::clean_resume());
+                screen_manager.load(card);
+                if (lastcard::clean_resume()) {
+                    lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
+                    card->refreshMenu();
+                }
             } else {
-                screen_manager.load(std::make_shared<HomeScreen>());
+                bsp_display_clear();
+                bool valid = false;
+                if (bsp_rtc_time_is_valid(&valid) == ESP_OK && !valid) {
+                    screen_manager.load(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Boot));
+                } else {
+                    screen_manager.load(std::make_shared<HomeScreen>());
+                }
             }
         }
         power::start();

@@ -109,6 +109,7 @@ void DateTimeScreen::commit() {
     dt.second = 0;
     dt.weekday = (uint8_t)weekday_of(year_, month_, day_);
     bsp_rtc_set_time(&dt);
+    rtc_sync_system_time();
 
     if (nav_ == Nav::Back) {
         screen_manager.pop();

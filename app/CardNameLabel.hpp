@@ -27,6 +27,10 @@ public:
     // supplement so nothing external need outlive this.
     bool load_mycard(uint16_t px);
 
+    // Read a card's name from an SD container PDF (share-only or full),
+    // copying the glyph supplement so nothing external need outlive this.
+    bool load_file(const std::string &path, uint16_t px);
+
     void reset();
     bool valid() const { return font_ && !text_.empty(); }
     const std::string &text() const { return text_; }

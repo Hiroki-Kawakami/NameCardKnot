@@ -49,6 +49,27 @@ bool CardNameLabel::load_mycard(uint16_t px) {
     return true;
 }
 
+bool CardNameLabel::load_file(const std::string &path, uint16_t px) {
+    reset();
+    nckpdf::Card card;
+    if (nckpdf::open_file(path.c_str(), card) != nckpdf::Status::Ok || card.name.empty())
+        return false;
+    text_ = card.name;
+
+    const nckpdf::GlyphSet *glyphs = nullptr;
+    const nckpdf::Asset *a = card.find(nckpdf::AssetType::NameGlyphs);
+    if (a && a->length) {
+        glyph_blob_.resize(a->length);
+        if (nckpdf::read_asset(path.c_str(), *a, glyph_blob_.data(), glyph_blob_.size()) == nckpdf::Status::Ok &&
+            nckpdf::parse_name_glyphs(glyph_blob_.data(), glyph_blob_.size(), glyphs_) == nckpdf::Status::Ok)
+            glyphs = &glyphs_;
+        else
+            glyph_blob_.clear();
+    }
+    font_ = std::make_unique<NameFont>(glyphs, px);
+    return true;
+}
+
 lv_obj_t *CardNameLabel::make_label(lv_obj_t *parent) const {
     if (!valid()) return nullptr;
     auto label = lv_label_create(parent);

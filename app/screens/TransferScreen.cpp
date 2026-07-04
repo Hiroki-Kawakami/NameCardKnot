@@ -5,6 +5,7 @@
 
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "LastCard.hpp"
 #include "Power.hpp"
 
 #include "esp_log.h"
@@ -359,6 +360,7 @@ bool TransferScreen::finalizeReceived() {
         std::remove(kTempPath);
         return false;
     }
+    lastcard::save_received(dest);
     saved_name_ = name;
     return true;
 }

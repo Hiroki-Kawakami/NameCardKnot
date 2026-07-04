@@ -26,6 +26,11 @@ void save_mycard();
 void save_sd_file(const std::string &path);
 void clear();
 
+// One-shot pending-open record for a just-received card (path under
+// RECEIVED_CARDS_DIR), consumed at the next boot.
+void save_received(const std::string &path);
+std::string take_received();
+
 // The lastcard flash-partition cache (source PDF + decoded display image),
 // written at sleep entry so boot can restore without the SD card or a decode.
 // cache_path (NVS) names the source the partition contents are valid for: it is

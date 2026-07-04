@@ -83,6 +83,30 @@ void clear() {
     nvs_close(h);
 }
 
+void save_received(const std::string &path) {
+    nvs_handle_t h;
+    if (!open_store(NVS_READWRITE, &h)) return;
+    nvs_set_str(h, "rcvpath", path.c_str());
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+std::string take_received() {
+    std::string path;
+    nvs_handle_t h;
+    if (!open_store(NVS_READWRITE, &h)) return path;
+    size_t len = 0;
+    if (nvs_get_str(h, "rcvpath", nullptr, &len) == ESP_OK && len > 1) {
+        path.resize(len);
+        if (nvs_get_str(h, "rcvpath", path.data(), &len) == ESP_OK) path.resize(len - 1);
+        else path.clear();
+    }
+    nvs_erase_key(h, "rcvpath");
+    nvs_commit(h);
+    nvs_close(h);
+    return path;
+}
+
 std::string cache_path() {
     std::string path;
     nvs_handle_t h;

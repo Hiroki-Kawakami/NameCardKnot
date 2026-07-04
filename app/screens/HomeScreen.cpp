@@ -8,6 +8,7 @@
 #include "resources.h"
 #include "NameCardKnot.hpp"
 #include "FileBrowserScreen.hpp"
+#include "GalleryScreen.hpp"
 #include "NameCardScreen.hpp"
 #include "NameCardData.hpp"
 #include "CardStore.hpp"
@@ -78,7 +79,10 @@ void HomeScreen::build() {
             screen_manager.push(std::make_shared<FileBrowserScreen>());
         });
         lv_ver_separator_create(row1);
-        button(row1, R.icon.images_80px, "Gallery", [](lv_event_t*) {});
+        button(row1, R.icon.images_80px, "Gallery", [](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            screen_manager.push(std::make_shared<GalleryScreen>());
+        });
 
         lv_hor_separator_create(root_, 20);
 

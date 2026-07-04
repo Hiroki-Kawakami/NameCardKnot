@@ -416,7 +416,10 @@ device は `../components` コンテナで自動検出、host は自前テスト
 で部分範囲デコードする。`name_glyphs`→`lv_font` アダプタは app 側に実装済み
 （`app/lv_glyph_font.hpp`：blob を実行時 `lv_font_t` に変換し A8 マスク展開。
 `NameCardData::name_glyphs()` が blob をパース・保持し、`NameCardScreen` が名前ラベルの
-fallback chain に繋ぐ）。残り：エディタの canvas グリフ・ラスタライズ、`.snc.pdf` 用ビューア。
+fallback chain に繋ぐ）。`.snc.pdf` 用ビューアも実装済み（`app/screens/SharedCardScreen`：
+`SharedCardData` 経由で名前・共有画像・URL/QR・メッセージを表示。`GalleryScreen` が
+`RECEIVED_CARDS_DIR` の一覧から、受信直後ブートが `lastcard::take_received()` から開く）。
+残り：エディタの canvas グリフ・ラスタライズ。
 
 ```sh
 nix develop -c sh components/namecard_pdf/test/run.sh       # 単体（ゴールデン照合）
