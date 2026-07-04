@@ -6,6 +6,7 @@ import ImagePicker from "./components/ImagePicker";
 import SharePreview, { type ShareImage } from "./components/SharePreview";
 import { type CropState, defaultCrop } from "./lib/crop";
 import { loadDraft, saveDraft } from "./lib/draft";
+import { t } from "./i18n";
 import { buildNameGlyphs } from "./lib/glyph-raster";
 import { cropJpeg, imageFromJpeg } from "./lib/image-export";
 import {
@@ -44,13 +45,13 @@ export default function App() {
 
   const urlWarning =
     url.trim() !== "" && !/^https?:\/\//i.test(url.trim())
-      ? "http(s):// で始まっていません。デバイスの QR コードが正しく機能しない可能性があります"
+      ? t.urlWarning
       : null;
 
   const problems: string[] = [];
-  if (name.trim() === "") problems.push("名前");
-  if (!displayImage) problems.push("表示用画像");
-  if (!share1SameAsDisplay && !share1Image) problems.push("共有用画像 1");
+  if (name.trim() === "") problems.push(t.name);
+  if (!displayImage) problems.push(t.displayImage);
+  if (!share1SameAsDisplay && !share1Image) problems.push(t.share1);
   const canSave = problems.length === 0 && !busy;
 
   const shares: ShareImage[] = useMemo(() => {
@@ -106,9 +107,7 @@ export default function App() {
       a.download = `${safeName}.${ext}`;
       a.click();
       URL.revokeObjectURL(a.href);
-      setNotice(
-        `${safeName}.${ext} を保存しました。SD カードにコピーしてデバイスで開けます。`,
-      );
+      setNotice(t.saved(`${safeName}.${ext}`));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -137,14 +136,10 @@ export default function App() {
         card.shares[1] ? await imageFromJpeg(card.shares[1]) : null,
       );
       setShare2Crop(fitCrop());
-      if (!card.display)
-        setNotice(
-          "共有専用ファイル（.snc.pdf）のため表示用画像は含まれていません。",
-        );
+      if (!card.display) setNotice(t.shareOnlyNoDisplay);
     } catch (e) {
       setError(
-        `「${file.name}」を読み込めませんでした（NameCardKnot のファイルではない可能性があります）: ` +
-          (e instanceof Error ? e.message : String(e)),
+        t.openFailed(file.name, e instanceof Error ? e.message : String(e)),
       );
     }
   };
@@ -158,7 +153,7 @@ export default function App() {
           className="secondary"
           onClick={() => openRef.current?.click()}
         >
-          .mnc.pdf を開く
+          {t.openMnc}
         </button>
         <input
           ref={openRef}
@@ -177,7 +172,7 @@ export default function App() {
           <span>{error}</span>
           <button
             type="button"
-            aria-label="閉じる"
+            aria-label={t.close}
             onClick={() => setError(null)}
           >
             ✕
@@ -189,7 +184,7 @@ export default function App() {
           <span>{notice}</span>
           <button
             type="button"
-            aria-label="閉じる"
+            aria-label={t.close}
             onClick={() => setNotice(null)}
           >
             ✕
@@ -200,7 +195,7 @@ export default function App() {
       <div className="layout">
         <div className="form">
           <label className="field">
-            <span className="field-label">名前</span>
+            <span className="field-label">{t.name}</span>
             <input
               type="text"
               value={name}
@@ -209,7 +204,7 @@ export default function App() {
           </label>
 
           <label className="field">
-            <span className="field-label">URL（任意）</span>
+            <span className="field-label">{t.urlOptional}</span>
             <input
               type="url"
               value={url}
@@ -220,8 +215,8 @@ export default function App() {
           </label>
 
           <ImagePicker
-            label="表示用画像"
-            help="デバイスの画面に表示する画像 (540×960)"
+            label={t.displayImage}
+            help={t.displayImageHelp}
             image={displayImage}
             crop={displayCrop}
             targetW={DISPLAY_W}
@@ -232,15 +227,15 @@ export default function App() {
           />
 
           <div className="field">
-            <span className="field-label">共有用画像 1</span>
-            <span className="field-help">共有相手に転送する画像 (405×720)</span>
+            <span className="field-label">{t.share1}</span>
+            <span className="field-help">{t.share1Help}</span>
             <label className="checkbox">
               <input
                 type="checkbox"
                 checked={share1SameAsDisplay}
                 onChange={(e) => setShare1SameAsDisplay(e.target.checked)}
               />
-              表示用と同じ画像を使う
+              {t.sameAsDisplay}
             </label>
             {!share1SameAsDisplay && (
               <ImagePicker
@@ -257,7 +252,7 @@ export default function App() {
           </div>
 
           <ImagePicker
-            label="共有用画像 2（任意）"
+            label={t.share2Optional}
             image={share2Image}
             crop={share2Crop}
             targetW={SHARE_W}
@@ -268,7 +263,7 @@ export default function App() {
           />
 
           <label className="field">
-            <span className="field-label">共有メッセージ（任意）</span>
+            <span className="field-label">{t.shareMessageOptional}</span>
             <textarea
               value={message}
               rows={4}
@@ -283,11 +278,11 @@ export default function App() {
               onClick={(e) => onSave(e.altKey && e.shiftKey)}
               disabled={!canSave}
             >
-              {busy ? "生成中…" : "保存"}
+              {busy ? t.generating : t.save}
             </button>
             {problems.length > 0 && (
               <span className="field-help">
-                必須項目: {problems.join(" / ")}
+                {t.required(problems.join(" / "))}
               </span>
             )}
           </div>

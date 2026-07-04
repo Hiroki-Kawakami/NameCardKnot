@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { type CropState, drawCropped } from "../lib/crop";
+import { t } from "../i18n";
 import { applyEpdLook } from "../lib/epd-preview";
 import { PAGE1_H, PAGE1_W } from "../lib/namecard-pdf/constants";
 
@@ -34,12 +35,10 @@ export default function DevicePreview({
 
   return (
     <section className="preview-block">
-      <h2>プレビュー</h2>
+      <h2>{t.preview}</h2>
       <div className="device-frame">
         <canvas ref={canvasRef} width={PAGE1_W} height={PAGE1_H} />
-        {!image && (
-          <span className="preview-empty">表示用画像が未選択です</span>
-        )}
+        {!image && <span className="preview-empty">{t.noDisplayImage}</span>}
       </div>
     </section>
   );

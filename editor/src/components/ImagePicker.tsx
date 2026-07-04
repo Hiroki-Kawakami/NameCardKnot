@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from "react";
 import { type CropState, defaultCrop, drawCropped } from "../lib/crop";
+import { t } from "../i18n";
 import { readImageFile } from "../lib/image-export";
 
 export interface ImagePickerProps {
@@ -47,16 +48,14 @@ export default function ImagePicker({
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      onError(`「${file.name}」は画像ファイルではありません`);
+      onError(t.notImageFile(file.name));
       return;
     }
     try {
       onImage(await readImageFile(file));
       onCrop(defaultCrop());
     } catch {
-      onError(
-        `「${file.name}」を読み込めませんでした（このブラウザが対応していない形式かもしれません）`,
-      );
+      onError(t.readFailed(file.name));
     }
   };
 
@@ -137,7 +136,7 @@ export default function ImagePicker({
           }}
           {...dropProps}
         >
-          クリックして選択 / ここにドロップ
+          {t.clickOrDrop}
         </div>
       ) : (
         <div className="picker" {...dropProps}>
@@ -154,25 +153,25 @@ export default function ImagePicker({
             onPointerCancel={endDrag}
           />
           <div className="picker-controls">
-            <div className="segmented" role="group" aria-label="配置">
+            <div className="segmented" role="group" aria-label={t.placement}>
               <button
                 type="button"
                 className={crop.mode === "cover" ? "active" : ""}
                 onClick={() => onCrop({ ...crop, mode: "cover" })}
               >
-                切り抜く
+                {t.crop}
               </button>
               <button
                 type="button"
                 className={crop.mode === "fit" ? "active" : ""}
                 onClick={() => onCrop({ ...crop, mode: "fit" })}
               >
-                余白で収める
+                {t.fit}
               </button>
             </div>
             {crop.mode === "cover" && (
               <label className="zoom">
-                ズーム
+                {t.zoom}
                 <input
                   type="range"
                   min={1}
@@ -187,20 +186,18 @@ export default function ImagePicker({
             )}
             <div className="picker-buttons">
               <button type="button" className="small" onClick={openPicker}>
-                変更
+                {t.change}
               </button>
               <button
                 type="button"
                 className="small"
                 onClick={() => onImage(null)}
               >
-                削除
+                {t.remove}
               </button>
             </div>
             {crop.mode === "cover" && (
-              <span className="field-help">
-                プレビューをドラッグして位置を調整
-              </span>
+              <span className="field-help">{t.dragToAdjust}</span>
             )}
           </div>
         </div>

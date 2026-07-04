@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { type CropState, croppedSize, drawCropped } from "../lib/crop";
+import { t } from "../i18n";
 import { PAGE2_H, PAGE2_W } from "../lib/namecard-pdf/constants";
 import {
   layoutSharePage,
@@ -98,7 +99,7 @@ export default function SharePreview({
 
   return (
     <section className="preview-block">
-      <h2>共有ページ（PDF 2ページ目・近似）</h2>
+      <h2>{t.sharePageTitle}</h2>
       <canvas
         ref={canvasRef}
         className="share-canvas"
