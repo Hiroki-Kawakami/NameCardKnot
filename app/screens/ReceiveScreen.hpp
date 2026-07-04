@@ -15,7 +15,7 @@ protected:
     const char *transferTitle() const override { return "Receive"; }
     void stashReceived(const uint8_t *data, size_t len) override;
     void onHotKnotDone() override;
-    bootmsg::Id bootMsgId() const override { return bootmsg::Id::HotKnotReceiveFailed; }
+    bootmsg::Id bootMsgId() const override { return bootmsg::Id::ReceiveFailed; }
 
 private:
     bool return_my_data_ = false;

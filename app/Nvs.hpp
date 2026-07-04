@@ -18,7 +18,7 @@ class NameCardData;
 // BootMessageScreen builds; `param` is one free-form string argument.
 namespace bootmsg {
 
-enum class Id : uint32_t { None = 0, HotKnotShareFailed = 1, HotKnotReceiveFailed = 2 };
+enum class Id : uint32_t { None = 0, ShareFailed = 1, ReceiveFailed = 2, TransferFailed = 3, TransferComplete = 4 };
 
 struct Info {
     Id id = Id::None;

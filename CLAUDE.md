@@ -483,10 +483,16 @@ share image(s) 1:1, and conditional URL/QR, Message, and image-1/2 toggle button
 per what the card provides. The receive flow closes the loop:
 `TransferScreen::finalizeReceived` renames the incoming file into
 `RECEIVED_CARDS_DIR` and calls `lastcard::save_received(path)` (a one-shot NVS
-pending-open record), then `terminate()` reboots (`bsp_hw_reset()` — touch is dead
-after a HotKnot session). `app_entry`'s boot lambda consumes
-`lastcard::take_received()` before the lastcard resume check; a still-openable
-card loads `SharedCardScreen(Nav::Received)` directly, whose back button calls
+pending-open record); `TransferScreen` itself never shows the result — it saves
+a `bootmsg` (`ShareFailed`/`ReceiveFailed`/`TransferFailed`, or `TransferComplete`
+on success) and calls `bsp_hw_reset()` ("Finalizing" stays on glass through the
+reset; touch is dead after a HotKnot session). At boot, `BootMessageScreen` for
+`TransferComplete` consumes `lastcard::take_received()` itself and, when a card
+is pending, offers Open Card (`SharedCardScreen(Nav::Received)`) / Back instead
+of a single OK. `app_entry`'s own `lastcard::take_received()` fallback now only
+fires after a failed-reset manual reboot (the `bootmsg` record was cleared there
+but the pending-open one wasn't); a still-openable card loads
+`SharedCardScreen(Nav::Received)` directly, whose back button calls
 `make_resumed_card_screen()` (`NameCardKnot.hpp`, the boot resume logic factored
 out of `app_entry`) to reopen the `NameCardScreen` still recorded in lastcard NVS
 if any (e.g. Receive was opened from its menu), else `HomeScreen`. A HotKnot

@@ -10,8 +10,9 @@
 #include <string>
 
 // Generic modal message shown at boot, branched on bootmsg::Id. Boot mode adds
-// an OK button that clears the display and continues; ResetFailed has no
-// button (touch is dead) and hints at the physical reset button instead.
+// an OK button that clears the display and continues; a TransferComplete with
+// a pending-open received card offers Open Card / Back instead. ResetFailed has
+// no button (touch is dead) and hints at the physical reset button instead.
 class BootMessageScreen : public Screen {
 public:
     enum class Mode { Boot, ResetFailed };
@@ -29,4 +30,5 @@ private:
     Mode mode_;
     std::function<void()> on_continue_;
     lv_obj_t *modal_ = nullptr;
+    std::string received_path_;
 };

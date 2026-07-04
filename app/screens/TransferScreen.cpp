@@ -5,6 +5,8 @@
 
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "BootMessageScreen.hpp"
+#include "screen_manager.hpp"
 #include "Nvs.hpp"
 #include "Power.hpp"
 
@@ -17,7 +19,6 @@ static const char *TAG = "transfer";
 static constexpr char kTempPath[] = RECEIVED_CARDS_DIR "/.nck_transfer";
 static constexpr uint32_t kBarRefreshMs = 700;
 static constexpr uint32_t kAckTimeoutMs = 5000;  // fallback if the peer's ack never arrives
-static constexpr uint32_t kRebootDelayMs = 4000; // show the result, then reboot
 
 static bool file_exists(const std::string &path) {
     std::FILE *f = std::fopen(path.c_str(), "rb");
@@ -39,13 +40,27 @@ static std::string sanitize_filename(const std::string &name) {
     return out;
 }
 
+static std::string append_err(const std::string &text, esp_err_t err) {
+    if (err == ESP_OK) return text;
+    char buf[160];
+    snprintf(buf, sizeof buf, "%s (%s)", text.c_str(), esp_err_to_name(err));
+    return buf;
+}
+
+// Integer math: LVGL's builtin lv_snprintf has %f compiled out (LV_USE_FLOAT=0).
+static void set_kb_progress(lv_obj_t *label, uint32_t cur, uint32_t total) {
+    uint32_t c = cur * 10 / 1024, t = total * 10 / 1024;
+    lv_label_set_text_fmt(label, "%u.%u / %u.%u KB",
+                          (unsigned)(c / 10), (unsigned)(c % 10),
+                          (unsigned)(t / 10), (unsigned)(t % 10));
+}
+
 TransferScreen::TransferScreen(TransferStart start) : start_(std::move(start)) {}
 
 TransferScreen::~TransferScreen() {
     if (session_ && !closed_) dokan_close(session_);
     if (recv_file_) std::fclose(recv_file_);
     if (poll_timer_) lv_timer_delete(poll_timer_);
-    if (reboot_timer_) lv_timer_delete(reboot_timer_);
 }
 
 void TransferScreen::onAppear() {
@@ -53,13 +68,16 @@ void TransferScreen::onAppear() {
 }
 
 void TransferScreen::build() {
-    createNavigation("Transfer");
-    lv_obj_set_style_border_width(navigation_, 0, 0);
-    lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(contents_, 40, 0);
-    lv_obj_set_style_pad_row(contents_, 24, 0);
+    auto session = lv_container_create(root_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_size(session, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_hor(session, 20, 0);
+    lv_obj_set_style_pad_row(session, 24, 0);
 
-    peer_name_label_ = lv_label_create(contents_);
+    title_label_ = lv_label_create(session);
+    lv_label_set_text(title_label_, "Handshaking");
+    lv_obj_set_style_text_font(title_label_, &lv_font_montserrat_48, 0);
+
+    peer_name_label_ = lv_label_create(session);
     lv_obj_set_width(peer_name_label_, LV_PCT(100));
     lv_label_set_long_mode(peer_name_label_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(peer_name_label_, LV_TEXT_ALIGN_CENTER, 0);
@@ -67,18 +85,14 @@ void TransferScreen::build() {
     lv_label_set_text(peer_name_label_, "");
     lv_obj_add_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
 
-    status_label_ = lv_label_create(contents_);
-    lv_obj_set_width(status_label_, LV_PCT(100));
-    lv_label_set_long_mode(status_label_, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(status_label_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(status_label_, &lv_font_montserrat_24, 0);
-    lv_label_set_text(status_label_, "Connecting...");
-
-    bar_ = lv_bar_create(contents_);
+    bar_ = lv_bar_create(session);
     lv_obj_set_width(bar_, LV_PCT(80));
     lv_bar_set_range(bar_, 0, 100);
-    lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
-    lv_obj_add_flag(bar_, LV_OBJ_FLAG_HIDDEN);
+    lv_bar_set_value(bar_, 10, LV_ANIM_OFF);
+
+    progress_label_ = lv_label_create(session);
+    lv_obj_set_style_text_font(progress_label_, &lv_font_montserrat_24, 0);
+    lv_label_set_text(progress_label_, "");
 
     mount_sd_card();  // the receive direction writes the incoming card here
     mkdir(RECEIVED_CARDS_DIR, 0777);  // collect received cards together (ok if it exists)
@@ -109,7 +123,10 @@ void TransferScreen::onEvent(const dokan_event_t *ev, void *arg) {
         case DOKAN_EVENT_STREAM_WRITABLE: self->onStreamWritable(ev->stream); break;
         case DOKAN_EVENT_DISCONNECTED:    self->peer_left_.store(true, std::memory_order_release); break;
         case DOKAN_EVENT_STREAM_RESET:
-        case DOKAN_EVENT_ERROR:           self->failed_.store(true, std::memory_order_release); break;
+        case DOKAN_EVENT_ERROR:
+            self->err_.store(ev->err, std::memory_order_relaxed);
+            self->failed_.store(true, std::memory_order_release);
+            break;
     }
 }
 
@@ -266,6 +283,11 @@ void TransferScreen::poll() {
         if (failed_.load(std::memory_order_acquire)) terminate(false);  // connect failed/timeout
         return;
     }
+    if (!connected_shown_) {
+        connected_shown_ = true;
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+        lv_bar_set_value(bar_, 25, LV_ANIM_OFF);
+    }
     if (!hello_ready_.load(std::memory_order_acquire)) {
         // Error or peer drop during the handshake.
         if (failed_.load(std::memory_order_acquire) || peer_left_.load(std::memory_order_acquire))
@@ -276,15 +298,19 @@ void TransferScreen::poll() {
     // the session teardown that follows a successful exchange (the peer closing, seen
     // here as an error/disconnect) never overrides a completed transfer.
 
-    if (!name_shown_) {
-        name_shown_ = true;
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-        if (will_recv_.load(std::memory_order_relaxed) && peer_name_[0]) {
+    if (!hello_shown_) {
+        hello_shown_ = true;
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+        bool will_send = will_send_.load(std::memory_order_relaxed);
+        bool will_recv = will_recv_.load(std::memory_order_relaxed);
+        if (will_send && will_recv) lv_label_set_text(title_label_, "Exchanging Card");
+        else if (will_send) lv_label_set_text(title_label_, "Sending Card");
+        else if (will_recv) lv_label_set_text(title_label_, "Receiving Card");
+        if (peer_name_[0]) {
             lv_label_set_text(peer_name_label_, peer_name_);
             lv_obj_remove_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
         }
-        lv_label_set_text(status_label_, "Exchanging cards...");
-        lv_obj_remove_flag(bar_, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_value(bar_, 30, LV_ANIM_OFF);
     }
 
     if (will_recv_.load(std::memory_order_relaxed) &&
@@ -297,12 +323,13 @@ void TransferScreen::poll() {
                      recv_total_.load(std::memory_order_relaxed);
     if (total > 0) {
         uint32_t cur = sent_.load(std::memory_order_relaxed) + recv_.load(std::memory_order_relaxed);
-        int pct = (int)((uint64_t)cur * 100 / total);
+        int pct = 30 + (int)((uint64_t)cur * 70 / total);
         if (pct > 100) pct = 100;
         if (pct != last_pct_ && (last_pct_ < 0 || pct == 100 ||
                                  lv_tick_elaps(last_bar_tick_) >= kBarRefreshMs)) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_FAST);
             lv_bar_set_value(bar_, pct, LV_ANIM_OFF);
+            set_kb_progress(progress_label_, cur, total);
             last_pct_ = pct;
             last_bar_tick_ = lv_tick_get();
         }
@@ -314,8 +341,10 @@ void TransferScreen::poll() {
         if (!done_marked_) {
             done_marked_ = true;
             done_tick_ = lv_tick_get();
-            epd_set_next_refresh_mode(BSP_EPD_MODE_FAST);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+            lv_label_set_text(title_label_, "Finalizing");
             lv_bar_set_value(bar_, 100, LV_ANIM_OFF);
+            if (total > 0) set_kb_progress(progress_label_, total, total);
         }
         // Close only once the peer has acked our card (so dokan_close can't drop
         // in-flight send-window bytes); fall back on a timeout / the peer leaving.
@@ -361,7 +390,6 @@ bool TransferScreen::finalizeReceived() {
         return false;
     }
     lastcard::save_received(dest);
-    saved_name_ = name;
     return true;
 }
 
@@ -373,20 +401,39 @@ void TransferScreen::terminate(bool ok) {
     if (session_ && !closed_) { dokan_close(session_); closed_ = true; }
     if (recv_file_) { std::fclose(recv_file_); recv_file_ = nullptr; }
     if (!ok) std::remove(kTempPath);  // drop a partial / invalid receive
+    // Overall failure: the card stays in the gallery but must not auto-open at boot.
+    if (!ok && recv_finalized_ && recv_ok_) lastcard::take_received();
 
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-    lv_obj_add_flag(bar_, LV_OBJ_FLAG_HIDDEN);
+    bool hello_ready = hello_ready_.load(std::memory_order_acquire);
+    bool will_send = hello_ready ? will_send_.load(std::memory_order_relaxed) : start_.offer;
+    bool will_recv = hello_ready ? will_recv_.load(std::memory_order_relaxed) : start_.accept;
+
+    bootmsg::Id id;
+    std::string msg;
     if (ok) {
-        if (!saved_name_.empty()) {
-            lv_label_set_text_fmt(status_label_, "Received %s.", saved_name_.c_str());
-        } else {
-            lv_label_set_text(status_label_, "Done.");
-        }
+        id = bootmsg::Id::TransferComplete;
+        if (will_recv && recv_finalized_ && recv_ok_) msg = "Received a new card.";
+        else if (will_send) msg = "Your card has been sent.";
+        else msg = "No cards were exchanged.";
     } else {
-        lv_obj_add_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(status_label_, "Transfer failed.");
+        id = (will_send && will_recv) ? bootmsg::Id::TransferFailed
+           : will_send                ? bootmsg::Id::ShareFailed
+           : will_recv                ? bootmsg::Id::ReceiveFailed
+                                       : bootmsg::Id::TransferFailed;
+        if (!connected_.load(std::memory_order_acquire)) msg = "Could not connect to the other device.";
+        else if (recv_finalized_ && !recv_ok_) msg = "Failed to save the received card.";
+        else msg = "The connection was lost before the transfer completed.";
+        msg = append_err(msg, (esp_err_t)err_.load(std::memory_order_relaxed));
     }
 
-    reboot_timer_ = lv_timer_create([](lv_timer_t *) { bsp_hw_reset(); }, kRebootDelayMs, this);
-    lv_timer_set_repeat_count(reboot_timer_, 1);
+    bootmsg::save(id, msg);
+    bsp_display_wait_idle();
+    esp_err_t err = bsp_hw_reset();
+    ESP_LOGE(TAG, "hw reset failed: %s", esp_err_to_name(err));
+
+    // Still here: USB kept VSYS up. Show the message directly instead of at boot.
+    // The rcvpath record (if any) stays put so a later manual reset auto-opens it.
+    bootmsg::clear();
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+    screen_manager.load(std::make_shared<BootMessageScreen>(id, msg, BootMessageScreen::Mode::ResetFailed));
 }

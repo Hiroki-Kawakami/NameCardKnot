@@ -50,7 +50,7 @@ void ReceiveScreen::onHotKnotDone() {
     start.accept = true;
     memcpy(start.descriptor, descriptor_, sizeof start.descriptor);
     start.own = data_;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     screen_manager.load(std::make_shared<TransferScreen>(std::move(start)));
 }
 

@@ -135,7 +135,11 @@ void NameCardScreen::closeMenu(bool full_refresh) {
 
 void NameCardScreen::refreshMenu() {
     if (!menuIsOpen()) return;
+#if CONFIG_IDF_TARGET_ESP32S3
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+#else
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+#endif
     lv_obj_invalidate(menu_);
 }
 

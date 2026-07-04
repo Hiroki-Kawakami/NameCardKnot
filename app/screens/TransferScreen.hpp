@@ -28,16 +28,16 @@ struct TransferStart {
 // negotiates intent over a HELLO stream, then sends/receives the share-only PDF
 // over CARD streams (each direction independent). One concrete class for both
 // roles — the protocol is symmetric. Touch is dead until reboot after a HotKnot
-// session, so the screen is non-interactive: it shows progress and reboots when
-// the exchange ends. dokan events arrive on the transport I/O task; the LVGL poll
-// timer reads the published atomics and owns the UI, the file finalize, and close.
-class TransferScreen : public NavigationScreen {
+// session, so the screen is non-interactive: it shows progress, then saves a
+// bootmsg and reboots — BootMessageScreen reports the result after restart.
+// dokan events arrive on the transport I/O task; the LVGL poll timer reads the
+// published atomics and owns the UI, the file finalize, and close.
+class TransferScreen : public Screen {
 public:
     explicit TransferScreen(TransferStart start);
     ~TransferScreen() override;
     void build() override;
     void onAppear() override;  // disables the idle power-off for the exchange
-    void back() override {}  // non-interactive; reboot is the only exit
 
 private:
     // KIND_ACK is a zero-byte stream meaning "I have fully received your card";
@@ -65,13 +65,13 @@ private:
     void terminate(bool ok);
 
     TransferStart start_;
-    NameFont name_font_{nullptr};
+    NameFont name_font_{nullptr, 32};
 
+    lv_obj_t *title_label_ = nullptr;
     lv_obj_t *peer_name_label_ = nullptr;
-    lv_obj_t *status_label_ = nullptr;
     lv_obj_t *bar_ = nullptr;
+    lv_obj_t *progress_label_ = nullptr;
     lv_timer_t *poll_timer_ = nullptr;
-    lv_timer_t *reboot_timer_ = nullptr;
 
     dokan_session_t *session_ = nullptr;
 
@@ -97,11 +97,13 @@ private:
     std::atomic<bool> got_peer_ack_{false};
     std::atomic<bool> peer_left_{false};
     std::atomic<bool> failed_{false};
+    std::atomic<int> err_{ESP_OK};
     std::atomic<uint32_t> sent_{0}, recv_{0};
     std::atomic<uint32_t> send_total_{0}, recv_total_{0};
 
     // poll-thread-only state.
-    bool name_shown_ = false;
+    bool connected_shown_ = false;
+    bool hello_shown_ = false;
     bool recv_finalized_ = false;
     bool recv_ok_ = true;
     bool done_marked_ = false;
@@ -110,5 +112,4 @@ private:
     uint32_t last_bar_tick_ = 0;
     bool terminating_ = false;
     bool closed_ = false;
-    std::string saved_name_;
 };
