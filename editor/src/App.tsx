@@ -8,7 +8,7 @@ import { type CropState, defaultCrop } from "./lib/crop";
 import { loadDraft, saveDraft } from "./lib/draft";
 import { buildNameGlyphs, missingChars } from "./lib/glyph-raster";
 import { cropJpeg, imageFromJpeg } from "./lib/image-export";
-import { buildNameCardPdf, parseNameCard } from "./lib/namecard-pdf";
+import { buildNameCardPdf, buildSharePdf, parseNameCard } from "./lib/namecard-pdf";
 import { DISPLAY_H, DISPLAY_W, SHARE_H, SHARE_W } from "./lib/targets";
 
 const fitCrop = (): CropState => ({ mode: "fit", x: 0.5, y: 0.5, zoom: 1 });
@@ -57,7 +57,7 @@ export default function App() {
     return out;
   }, [share1SameAsDisplay, displayImage, displayCrop, share1Image, share1Crop, share2Image, share2Crop]);
 
-  const onSave = async () => {
+  const onSave = async (sharePdf: boolean) => {
     if (!displayImage || !canSave) return;
     setBusy(true);
     setError(null);
@@ -69,15 +69,17 @@ export default function App() {
       );
       const nameGlyphs = await buildNameGlyphs(name);
 
-      const pdf = buildNameCardPdf({ name, url, message, display, shares: shareJpegs, nameGlyphs });
+      const build = sharePdf ? buildSharePdf : buildNameCardPdf;
+      const pdf = build({ name, url, message, display, shares: shareJpegs, nameGlyphs });
       const blob = new Blob([new Uint8Array(pdf)], { type: "application/pdf" });
       const safeName = name.trim().replace(/[\\/:*?"<>|\x00-\x1f]/g, "_") || "namecard";
+      const ext = sharePdf ? "snc.pdf" : "mnc.pdf";
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${safeName}.mnc.pdf`;
+      a.download = `${safeName}.${ext}`;
       a.click();
       URL.revokeObjectURL(a.href);
-      setNotice(`${safeName}.mnc.pdf を保存しました。SD カードにコピーしてデバイスで開けます。`);
+      setNotice(`${safeName}.${ext} を保存しました。SD カードにコピーしてデバイスで開けます。`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -226,7 +228,8 @@ export default function App() {
           </label>
 
           <div className="save-area">
-            <button type="button" onClick={onSave} disabled={!canSave}>
+            {/* debug: Alt+Shift+click saves the share-only .snc.pdf */}
+            <button type="button" onClick={(e) => onSave(e.altKey && e.shiftKey)} disabled={!canSave}>
               {busy ? "生成中…" : "保存（.mnc.pdf）"}
             </button>
             {problems.length > 0 && (
