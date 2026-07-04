@@ -16,6 +16,7 @@ protected:
     const char *transferTitle() const override { return "Share"; }
     void onHotKnotReady() override;
     void onHotKnotDone() override;
+    bootmsg::Id bootMsgId() const override { return bootmsg::Id::HotKnotShareFailed; }
 
 private:
     bool allow_return_data_ = false;

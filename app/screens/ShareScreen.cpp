@@ -146,7 +146,7 @@ void ShareScreen::onHotKnotReady() {
         failHotKnot(ESP_FAIL);
         return;
     }
-    setProgressMessage("Sending...");
+    setSessionMessage("Sending...");
     // HotKnot frames are even-length; send the descriptor including its NUL.
     size_t len = strlen(descriptor_) + 1;
     if (len & 1) len++;

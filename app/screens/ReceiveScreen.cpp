@@ -39,12 +39,11 @@ void ReceiveScreen::stashReceived(const uint8_t *data, size_t len) {
 }
 
 void ReceiveScreen::onHotKnotDone() {
-    endHotKnot();
     if (!dokan_descriptor_valid(descriptor_, DOKAN_APP_ID)) {
-        setProgressMessage("Received an invalid descriptor.");
-        addModalCloseButton();
+        failAndReboot("Received an invalid descriptor.");
         return;
     }
+    endHotKnot();
     TransferStart start{};
     start.role = DOKAN_ROLE_CLIENT;     // slave joins the SoftAP
     start.offer = return_my_data_ && data_ && data_->valid();

@@ -403,7 +403,11 @@ caveats: [`docs/gotchas.md`](docs/gotchas.md).
 
 `app/screens/` holds the `Screen` subclasses; each builds its tree in `build()`
 and is loaded via the `screen_manager`. `app_entry()` picks the first screen
-with `lv_async_call` (onto the LVGL context): if `app/LastCard` (NVS namespace
+with `lv_async_call` (onto the LVGL context): a pending `app/BootMessage`
+record (NVS namespace `bootmsg`) takes priority over everything below — it
+loads `BootMessageScreen` as a modal without clearing the EPD first (only the
+modal rect is driven), and OK returns to the resumed card screen or Home.
+Otherwise, if `app/LastCard` (NVS namespace
 `lastcard`) records a card being displayed — My Card or an SD path, saved by
 `NameCardScreen::onAppear` and cleared when the user leaves it — it reopens
 `NameCardScreen` directly (power-off resume, no Home in between); otherwise it
@@ -486,7 +490,13 @@ after a HotKnot session). `app_entry`'s boot lambda consumes
 card loads `SharedCardScreen(Nav::Received)` directly, whose back button calls
 `make_resumed_card_screen()` (`NameCardKnot.hpp`, the boot resume logic factored
 out of `app_entry`) to reopen the `NameCardScreen` still recorded in lastcard NVS
-if any (e.g. Receive was opened from its menu), else `HomeScreen`.
+if any (e.g. Receive was opened from its menu), else `HomeScreen`. A HotKnot
+failure past pairing has no tappable UI (touch is dead), so `HotKnotScreen::
+failAndReboot` instead saves an `app/BootMessage` record and calls
+`bsp_hw_reset()`; on `paper` with USB power a failed reset clears the record
+again and loads `BootMessageScreen` (`Mode::ResetFailed`) directly with a
+"press the reset button" hint — the message is already on glass, so the manual
+reset boots normally.
 
 **Card flash storage** (`app/CardStore`): `cardstore::Store` manages a dedicated
 2MB partition as a custom blob index (PDF + L8 image caches), no filesystem. Two

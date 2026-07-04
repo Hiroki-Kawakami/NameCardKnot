@@ -7,14 +7,27 @@
 #include "screen_manager.hpp"
 #include "lv_image_adapter.hpp"
 #include "NameCardKnot.hpp"
+#include "BootMessageScreen.hpp"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <cstdio>
+#include <string>
 
 static const char *TAG = "hotknot";
 
 static constexpr uint32_t kHotKnotSendTimeoutMs = 5000;
+static constexpr uint32_t kSlaveReceiveTimeoutMs = 10000;
+
+static std::string hotknot_error_message(esp_err_t err) {
+    const char *text = err == ESP_ERR_TIMEOUT
+        ? "The devices were separated before the transfer completed."
+        : "Card exchange failed.";
+    char buf[160];
+    snprintf(buf, sizeof buf, "%s (%s)", text, esp_err_to_name(err));
+    return buf;
+}
 
 HotKnotScreen::HotKnotScreen(std::shared_ptr<SharedCardData> data) : data_(std::move(data)) {}
 
@@ -180,6 +193,7 @@ bool HotKnotScreen::startHotKnot(bsp_hotknot_role_t role) {
         ESP_LOGW(TAG, "hotknot begin failed: %s", esp_err_to_name(err));
         return false;
     }
+    role_ = role;
     hk_active_ = true;
     hk_seen_ = HkState::Approaching;
     hk_state_.store(HkState::Approaching, std::memory_order_release);
@@ -230,8 +244,7 @@ void HotKnotScreen::pollHotKnot() {
                 hk_seen_ = HkState::Paired; onHotKnotPaired(); break;
             case HkState::Paired:
                 if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
-                else { hk_seen_ = HkState::Ready; onHotKnotReady(); }
-                if (hotknot_start_msg_) lv_obj_set_style_opa(hotknot_start_msg_, 0, 0);
+                else { hk_seen_ = HkState::Ready; ready_tick_ = lv_tick_get(); onHotKnotReady(); }
                 break;
             case HkState::Ready:
                 if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
@@ -246,18 +259,83 @@ void HotKnotScreen::pollHotKnot() {
             default: return;
         }
     }
+    // Master's send has its own bsp_hotknot_send timeout; the slave just waits
+    // for RECEIVED, so it needs its own watchdog here.
+    if (hk_seen_ == HkState::Ready && role_ == BSP_HOTKNOT_ROLE_SLAVE &&
+        lv_tick_elaps(ready_tick_) >= kSlaveReceiveTimeoutMs) {
+        failHotKnot(ESP_ERR_TIMEOUT);
+    }
 }
 
 void HotKnotScreen::onHotKnotPaired() {
-    showProgressModal("Connecting to the other device...");
+    stopWorker();
+    if (poll_timer_) { lv_timer_delete(poll_timer_); poll_timer_ = nullptr; }
+    slots_.clear();
+    share_images_ = nullptr;
+    hotknot_start_msg_ = nullptr;
+    modal_ = nullptr;
+    modal_message_ = nullptr;
+    navigation_ = nullptr;
+    navigation_title_ = nullptr;
+    contents_ = nullptr;
+
+    lv_obj_clean(root_);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+
+    auto session = lv_container_create(root_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_size(session, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_hor(session, 20, 0);
+    lv_obj_set_style_pad_row(session, 20, 0);
+
+    auto title = lv_label_create(session);
+    lv_label_set_text(title, "HotKnot Approach");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
+
+    auto icon = lv_label_create(session);
+    lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
+    lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
+
+    session_msg_ = lv_label_create(session);
+    lv_label_set_text(session_msg_, "Keep the devices held together until this finishes.");
+    lv_label_set_long_mode(session_msg_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(session_msg_, LV_PCT(100));
+    lv_obj_set_style_text_align(session_msg_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(session_msg_, &lv_font_montserrat_24, 0);
+
+    paired_ = true;
+}
+
+void HotKnotScreen::setSessionMessage(const char *message) {
+    if (!session_msg_) return;
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+    lv_label_set_text(session_msg_, message);
 }
 
 void HotKnotScreen::onHotKnotFailed(esp_err_t err) {
     ESP_LOGW(TAG, "hotknot failed: %s", esp_err_to_name(err));
-    endHotKnot();
-    if (!modal_) showProgressModal("");
-    setProgressMessage("Connection failed. Please try again.");
-    addModalCloseButton();
+    if (!paired_) {
+        endHotKnot();
+        if (!modal_) showProgressModal("");
+        setProgressMessage("Connection failed. Please try again.");
+        addModalCloseButton();
+        return;
+    }
+    failAndReboot(hotknot_error_message(err).c_str());
+}
+
+void HotKnotScreen::failAndReboot(const char *message) {
+    if (hk_timer_) { lv_timer_delete(hk_timer_); hk_timer_ = nullptr; }
+    bootmsg::save(bootMsgId(), message);
+
+    bsp_display_wait_idle();
+    esp_err_t err = bsp_hw_reset();
+    ESP_LOGE(TAG, "hw reset failed: %s", esp_err_to_name(err));
+
+    // Still here: USB kept VSYS up. Show the message directly instead of at boot.
+    bootmsg::clear();
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+    screen_manager.load(std::make_shared<BootMessageScreen>(
+        bootMsgId(), message, BootMessageScreen::Mode::ResetFailed));
 }
 
 // MARK: Progress / result modal

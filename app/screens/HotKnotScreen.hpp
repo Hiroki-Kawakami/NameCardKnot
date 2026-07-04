@@ -8,6 +8,7 @@
 #include "SharedCardData.hpp"
 #include "NameFont.hpp"
 #include "image_processor.hpp"
+#include "BootMessage.hpp"
 #include "bsp.h"
 #include <atomic>
 #include <memory>
@@ -44,7 +45,7 @@ protected:
     void sendHotKnot(const void *data, size_t len);  // caller keeps `data` alive
     void failHotKnot(esp_err_t err);
 
-    virtual void onHotKnotPaired();             // default: open the progress modal
+    virtual void onHotKnotPaired();             // default: switch to the session UI
     virtual void onHotKnotReady() {}            // ready to send (master)
     virtual void onHotKnotDone() {}             // sent (master) / received (slave)
     virtual void onHotKnotFailed(esp_err_t err);
@@ -54,6 +55,15 @@ protected:
     void showProgressModal(const char *message);
     void setProgressMessage(const char *message);
     void addModalCloseButton(const char *text = "Close");
+
+    // Session UI shown from onHotKnotPaired onward (touch is dead past this
+    // point, so it replaces the whole tree rather than layering a modal).
+    void setSessionMessage(const char *message);
+
+    // Past pairing there is no way back (no modal the user could tap): save a
+    // boot message and power-cycle so the failure surfaces at the next boot.
+    void failAndReboot(const char *message);
+    virtual bootmsg::Id bootMsgId() const = 0;
 
     std::shared_ptr<SharedCardData> data_;
 
@@ -93,8 +103,12 @@ private:
 
     lv_obj_t *modal_ = nullptr;
     lv_obj_t *modal_message_ = nullptr;
+    lv_obj_t *session_msg_ = nullptr;
     lv_timer_t *hk_timer_ = nullptr;
     bool hk_active_ = false;
+    bool paired_ = false;
+    bsp_hotknot_role_t role_ = BSP_HOTKNOT_ROLE_SLAVE;
+    uint32_t ready_tick_ = 0;
 
     std::atomic<HkState> hk_state_{HkState::Idle};
     std::atomic<bool> hk_send_busy_{false};

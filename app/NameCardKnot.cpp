@@ -21,8 +21,10 @@
 #include "SharedCardScreen.hpp"
 #include "SharedCardData.hpp"
 #include "DateTimeScreen.hpp"
+#include "BootMessageScreen.hpp"
 #include "CardStore.hpp"
 #include "LastCard.hpp"
+#include "BootMessage.hpp"
 #include "Power.hpp"
 
 static const char *TAG = "NameCardKnot";
@@ -227,6 +229,12 @@ void rtc_sync_system_time() {
 #endif
 }
 
+static void load_resumed_or_home() {
+    auto card = make_resumed_card_screen();
+    if (card) screen_manager.load(card);
+    else      screen_manager.load(std::make_shared<HomeScreen>());
+}
+
 void app_entry() {
     bsp_config_t bsp_config = {};
     bsp_config.epd.task_priority = 5;
@@ -242,6 +250,17 @@ void app_entry() {
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
     lv_async_call([](void*) {
+        auto bm = bootmsg::take();
+        if (bm.id != bootmsg::Id::None) {
+            auto screen = std::make_shared<BootMessageScreen>(
+                bm.id, bm.param, BootMessageScreen::Mode::Boot, load_resumed_or_home);
+            screen_manager.load(screen);
+            lv_refr_now(NULL);
+            screen->refreshModal();
+            power::start();
+            return;
+        }
+
         std::shared_ptr<SharedCardData> received;
         std::string rpath = lastcard::take_received();
         if (!rpath.empty() && mount_sd_card()) {
