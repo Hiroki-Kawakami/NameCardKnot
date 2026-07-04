@@ -14,7 +14,8 @@
 
 class FileBrowserScreen : public NavigationScreen {
 public:
-    // Open: tap an image/.mnc.pdf to view it (NameCardScreen).
+    // Open: tap an image/.mnc.pdf to view it (NameCardScreen), or a .snc.pdf
+    // (SharedCardScreen); unsupported files show an error modal.
     // ImportMyCard: list only .mnc.pdf, tap to import into the My Card flash.
     enum class Mode { Open, ImportMyCard };
 
@@ -40,6 +41,7 @@ private:
     void load();
     void rebuild();
     void open(int index);
+    void openError(const std::string &msg);
 
     // Async file load shown in a modal. The loader (a FileLoader) reports
     // progress/cancel; onLoaded_ does the per-type transition. The modal + poll

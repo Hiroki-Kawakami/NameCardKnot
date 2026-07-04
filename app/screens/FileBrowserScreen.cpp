@@ -6,6 +6,8 @@
 #include "FileBrowserScreen.hpp"
 #include "NameCardScreen.hpp"
 #include "NameCardData.hpp"
+#include "SharedCardScreen.hpp"
+#include "SharedCardData.hpp"
 #include "ImportJob.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
@@ -257,8 +259,35 @@ void FileBrowserScreen::open(int index) {
             screen_manager.push(std::make_shared<NameCardScreen>(data, NameCardScreen::Nav::Back));
         };
         openProgress();
+        return;
     }
-    // .snc.pdf (no display image) and other types are not openable yet.
+
+    // .snc.pdf: metadata parse is sync (no decode), so no progress modal.
+    if (ends_with(e.name, ".snc.pdf")) {
+        auto data = SharedCardData::open(path);
+        if (!data || !data->valid()) {
+            openError("Cannot open " + e.name);
+            return;
+        }
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        screen_manager.push(std::make_shared<SharedCardScreen>(data, SharedCardScreen::Nav::Back));
+        return;
+    }
+
+    openError("Unsupported file:\n" + e.name);
+}
+
+void FileBrowserScreen::openError(const std::string &msg) {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+    auto card = lv_modal_open(root_);
+    lv_modal_title_create(card, "Error");
+    lv_modal_message_create(card, msg.c_str());
+    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+        lv_async_call([card] {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+            lv_modal_close(card);
+        });
+    });
 }
 
 void FileBrowserScreen::openProgress() {

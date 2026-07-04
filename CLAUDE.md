@@ -447,7 +447,9 @@ browser holds one `FileLoader` plus a completion `std::function` callback, so a
 new file type is just a new loader + callback at the call site, not new per-type
 modal code. An `lv_timer` polls the loader, drives the bar (throttled — each EPD
 refresh is costly), and on completion runs the callback, which pushes
-`NameCardScreen` with the loaded `NameCardData`. `NameCardScreen` has two nav
+`NameCardScreen` with the loaded `NameCardData`. A `.snc.pdf` instead opens
+`SharedCardScreen` directly (sync metadata parse, no progress modal); any other
+file type shows an error modal. `NameCardScreen` has two nav
 modes: `Nav::Back` (pushed from the browser; the menu's bottom-left button pops
 back) and `Nav::Home` (loaded from Home / boot resume; the button loads
 `HomeScreen`) — so a resume boot never needs a screen under it. Its menu is a
