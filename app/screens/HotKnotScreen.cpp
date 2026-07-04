@@ -235,7 +235,13 @@ void HotKnotScreen::pollHotKnot() {
                 break;
             case HkState::Ready:
                 if (s == HkState::Failed) { hk_seen_ = HkState::Failed; onHotKnotFailed(hk_err_); }
-                else { hk_seen_ = HkState::Done; onHotKnotDone(); }
+                else {
+                    hk_seen_ = HkState::Done;
+                    // Audible cue: the screens face each other, so this is the
+                    // only feedback that they can be pulled apart now.
+                    bsp_audio_tone(2700, 150);
+                    onHotKnotDone();
+                }
                 break;
             default: return;
         }

@@ -96,7 +96,9 @@ esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
     src/              #     shared dispatch: bsp_display.c, bsp_touch.c
     devices/          #     DEVICE chip drivers: ed047tc1 (i80 EPD descriptor) + it8951e (SPI EPD: driver + it8951e_epd bsp_display provider) + gt911 (I2C touch) + bm8563 (I2C RTC)
     driver/epd/       #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free per-pixel core, host-tested) + epd_waveform_lut.h (LUT authoring macros) + test/
-    simulator/        #     SIM SDL backend: sdl_panel.{c,h}
+    driver/pwm_buzzer/#     generic LEDC passive-buzzer bsp_audio provider (TONE-only)
+    simulator/        #     SIM SDL backend: sdl_panel.{c,h} + sdl_audio.{c,h}
+    test/             #     host tests: audio dispatch / DSP / SDL provider → docs/testing.md
     boards/<board>/   #     per-board bring-up + board.cmake (source/requirement lists); paper_s3 (ED047TC1) and paper (IT8951E, shared EPD/SD SPI bus, paper_config.h)
   idf_compat/         #   SIM-only ESP-IDF compat (esp_*, pthread-backed FreeRTOS)
   sim_harness/        #   SIM-only scripted UI verification core (portable, DI) → docs/testing.md
@@ -323,6 +325,31 @@ recovery after a session is **capability-driven**: it needs a wired RESET +
 output-capable INT, which Paper/PaperS3 lack (RESET unwired → power cycle), so
 that is a board constraint, not a HotKnot assumption — see
 [`docs/gotchas.md`](docs/gotchas.md).
+
+### Audio (`bsp_audio_*`)
+
+Capability-based (`bsp_audio_get_caps`: `PCM`/`TONE`/`SPEAKER`/`HEADPHONE`)
+behind the same vtable pattern (`bsp_audio_t` in `inc_private/bsp_audio.h`,
+dispatch in `src/bsp_audio.c`; calls outside the caps →
+`ESP_ERR_NOT_SUPPORTED`). The dispatch owns all policy: the volume curve
+(linear-in-dB, a fading software gain through the `audio_dsp` chain,
+`inc/audio_dsp.h`), the speaker route (ON/AUTO/OFF + headphone poll task),
+click-free open/close sequencing, and the **tone fallback** — `bsp_audio_tone`
+works with `CAP_TONE` (hardware buzzer) *or* `CAP_PCM` (sine synthesized by a
+lazily-created task; `ESP_ERR_INVALID_STATE` while an app PCM stream is open).
+`bsp_audio_open`/`close` are idempotent; open on a running stream with a new
+format reconfigures — there is no separate reconfig API, the provider `open()`
+op is defined as callable while running. Volume/mute are `CAP_PCM`-gated;
+buzzer loudness is fixed. `bsp_config.audio` selects `dsp_mode`/`speaker_mode`.
+
+- **paper_s3 device**: `driver/pwm_buzzer/` (generic LEDC provider — fixed 50%
+  duty, pin idles low for the AC-coupled gate drive) on GPIO21; `bsp_restart`/
+  `bsp_power_off` call `bsp_audio_quiesce()`. The `paper` board has no audio.
+- **simulator**: `simulator/sdl_audio.c` mirrors the board's caps — the
+  paper_s3 sim registers `tone_only` (square-wave synth, buzzer timbre); PCM
+  mode (for speaker boards) exercises the full DSP/route path with SDL
+  queue-audio backpressure, silent-but-paced under `SIMULATOR_HEADLESS`.
+- Host tests (`esp-devkit/bsp/test/run.sh`): [`docs/testing.md`](docs/testing.md).
 
 ## UI framework — LVGL port abstraction + UI utilities
 

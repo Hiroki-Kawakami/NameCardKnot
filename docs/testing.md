@@ -110,6 +110,22 @@ depends only on pthread + libc. Everything board- or app-specific is injected:
   out of the core (the original harness hard-coded wifi commands — don't repeat
   that). A handler returns false to stop the run, like `quit`.
 
+## Host unit tests — BSP audio
+
+The audio dispatch + DSP chain + SDL provider have host tests in
+`esp-devkit/bsp/test/` (gcc + the `idf_compat` pthread FreeRTOS shim):
+
+```sh
+nix develop -c esp-devkit/bsp/test/run.sh                          # test_audio_dsp (DSP math)
+TEST=test_bsp_audio nix develop -c esp-devkit/bsp/test/run.sh      # dispatch policy vs stub providers
+SIMULATOR_HEADLESS=1 TEST=test_sdl_audio nix develop -c esp-devkit/bsp/test/run.sh
+```
+
+`test_bsp_audio` covers caps gating, idempotent open/close, the volume/mute
+fades, and the tone-over-PCM synth fallback; `test_sdl_audio` drives the SDL
+provider in both PCM and tone_only modes (audible when a sound device exists,
+paced null sink headless).
+
 ## Host unit tests — `image_processor`
 
 Beyond UI verification, the image library has plain host unit tests (no ESP-IDF,
