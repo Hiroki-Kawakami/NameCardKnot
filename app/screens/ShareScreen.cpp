@@ -6,6 +6,7 @@
 #include "ShareScreen.hpp"
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Settings.hpp"
 #include "screen_manager.hpp"
 #include "resources.h"
 #include <cstring>
@@ -111,8 +112,9 @@ void ShareScreen::build() {
         lv_obj_set_style_pad_hor(container, 20, 0);
         lv_obj_remove_flag(container, LV_OBJ_FLAG_CLICKABLE);
 
+        allow_return_data_ = settings::share_receive_return();
         auto createCheckbox = [this, container](lv_event_t *e) {
-            if (e) allow_return_data_ = !allow_return_data_;
+            if (e) settings::set_share_receive_return(allow_return_data_ = !allow_return_data_);
 
             lv_obj_clean(container);
             auto checkbox = lv_label_create(container);

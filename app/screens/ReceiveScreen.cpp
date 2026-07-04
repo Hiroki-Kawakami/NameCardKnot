@@ -6,6 +6,7 @@
 #include "ReceiveScreen.hpp"
 #include "TransferScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Settings.hpp"
 #include "screen_manager.hpp"
 #include "resources.h"
 #include "dokan.h"
@@ -77,8 +78,9 @@ void ReceiveScreen::loadShareCardData() {
         lv_obj_set_style_pad_hor(container, 20, 0);
         lv_obj_remove_flag(container, LV_OBJ_FLAG_CLICKABLE);
 
+        return_my_data_ = settings::receive_send_return();
         auto createCheckbox = [this, container](lv_event_t *e) {
-            if (e) return_my_data_ = !return_my_data_;
+            if (e) settings::set_receive_send_return(return_my_data_ = !return_my_data_);
 
             lv_obj_clean(container);
             auto checkbox = lv_label_create(container);
