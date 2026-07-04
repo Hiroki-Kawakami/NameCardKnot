@@ -67,6 +67,7 @@ void GalleryScreen::load() {
 }
 
 void GalleryScreen::rebuild() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     lv_obj_clean(contents_);
     row_names_.clear();
 

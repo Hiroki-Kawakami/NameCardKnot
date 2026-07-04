@@ -84,6 +84,7 @@ void FileBrowserScreen::load() {
 }
 
 void FileBrowserScreen::rebuild() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     lv_obj_clean(contents_);
     const std::string &path = path_stack_.back();
     size_t slash = path.find_last_of('/');
@@ -261,7 +262,7 @@ void FileBrowserScreen::open(int index) {
 }
 
 void FileBrowserScreen::openProgress() {
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     card_ = lv_modal_open(root_);
     lv_modal_title_create(card_, "Loading...");
     lv_modal_message_create(card_, loader_->label().c_str());

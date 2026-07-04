@@ -74,7 +74,7 @@ void SharedCardScreen::showImage(int index) {
 void SharedCardScreen::toggleImage() {
     int next = shown_image_ == 0 ? 1 : 0;
     if (!decodeImage(next)) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     showImage(next);
     if (image_toggle_label_)
         lv_label_set_text(image_toggle_label_, shown_image_ == 0 ? "Image 2" : "Image 1");
@@ -118,7 +118,10 @@ void SharedCardScreen::buildButtonBar() {
     };
 
     if (nav_ == Nav::Back) {
-        button(bar, LUCIDE_ARROW_LEFT, "Back", [this](lv_event_t*) { screen_manager.pop(); });
+        button(bar, LUCIDE_ARROW_LEFT, "Back", [this](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+            screen_manager.pop();
+        });
     } else {
         button(bar, LUCIDE_HOME, "Home", [this](lv_event_t*) {
             auto card = make_resumed_card_screen();
@@ -143,7 +146,7 @@ void SharedCardScreen::buildButtonBar() {
 }
 
 void SharedCardScreen::openUrlModal() {
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     auto card = lv_modal_open(root_);
 
     lv_obj_t *qr = lv_qrcode_create(card);
@@ -168,7 +171,7 @@ void SharedCardScreen::openUrlModal() {
 }
 
 void SharedCardScreen::openMessageModal() {
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     auto card = lv_modal_open(root_);
     lv_modal_title_create(card, "Message");
     auto msg = lv_modal_message_create(card, data_->message().c_str());

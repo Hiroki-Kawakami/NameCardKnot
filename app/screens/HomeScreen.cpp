@@ -75,12 +75,10 @@ void HomeScreen::build() {
         lv_obj_set_style_pad_ver(row1, 10, 0);
         lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         button(row1, R.icon.card_sd_80px, "Open from SD", [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             screen_manager.push(std::make_shared<FileBrowserScreen>());
         });
         lv_ver_separator_create(row1);
         button(row1, R.icon.images_80px, "Gallery", [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             screen_manager.push(std::make_shared<GalleryScreen>());
         });
 
@@ -101,7 +99,7 @@ void HomeScreen::build() {
         });
         lv_ver_separator_create(row2);
         button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<SettingsScreen>());
         });
     }
@@ -139,7 +137,6 @@ void HomeScreen::importMyCard() {
     if (mycard_section_) lv_obj_clean(mycard_section_);
     preview_map_ = cardstore::MappedImage{};  // release the mapping before the rewrite
     name_.reset();
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     screen_manager.push(std::make_shared<FileBrowserScreen>("/sdcard", FileBrowserScreen::Mode::ImportMyCard));
 }
 
@@ -212,7 +209,7 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
         if (!card) return;
         auto shared = card->share();
         if (!shared || !shared->valid()) return;
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         screen_manager.push(std::make_shared<ShareScreen>(shared));
     }, LV_EVENT_CLICKED, nullptr);
 

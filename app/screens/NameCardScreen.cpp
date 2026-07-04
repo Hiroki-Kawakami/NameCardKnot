@@ -122,7 +122,7 @@ bool NameCardScreen::menuIsOpen() const {
 
 void NameCardScreen::openMenu() {
     if (!menu_ || menuIsOpen()) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     lv_obj_remove_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -135,7 +135,7 @@ void NameCardScreen::closeMenu(bool full_refresh) {
 
 void NameCardScreen::refreshMenu() {
     if (!menuIsOpen()) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     lv_obj_invalidate(menu_);
 }
 
@@ -155,9 +155,14 @@ bool NameCardScreen::closeOverlays() {
 
 void NameCardScreen::leave() {
     lastcard::clear();
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
-    if (nav_ == Nav::Back) screen_manager.pop();
-    else                   screen_manager.load(std::make_shared<HomeScreen>());
+    if (nav_ == Nav::Back) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+        screen_manager.pop();
+    }
+    else {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        screen_manager.load(std::make_shared<HomeScreen>());
+    }
 }
 
 void NameCardScreen::buildMenu() {
@@ -203,14 +208,14 @@ void NameCardScreen::buildMenu() {
         button(row1, LUCIDE_SQUARE_ARROW_RIGHT_ENTER, "Receive", [this](lv_event_t*) {
             auto shared = data_->share();
             if (shared && !shared->valid()) shared = nullptr;
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<ReceiveScreen>(shared));
         });
         lv_ver_separator_create(row1);
         button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [this](lv_event_t*) {
             auto shared = data_->share();
             if (!shared || !shared->valid()) return;
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<ShareScreen>(shared));
         });
         lv_ver_separator_create(row1);
