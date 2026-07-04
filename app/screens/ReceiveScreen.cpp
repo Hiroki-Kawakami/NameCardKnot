@@ -19,6 +19,12 @@ void ReceiveScreen::build() {
     lv_obj_set_style_pad_row(contents_, 20, 0);
     lv_obj_set_style_pad_bottom(contents_, 20, 0);
 
+    if (!mount_sd_card()) {  // received cards are written to the SD card
+        showProgressModal("An SD card is required to receive cards.");
+        addModalCloseButton();
+        return;
+    }
+
     createHotKnotStartMessage(contents_);
     if (data_) loadShareCardData();
 
