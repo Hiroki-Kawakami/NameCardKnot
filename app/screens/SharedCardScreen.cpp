@@ -16,8 +16,13 @@ SharedCardScreen::SharedCardScreen(std::shared_ptr<SharedCardData> data, Nav nav
 
 void SharedCardScreen::build() {
     lv_obj_set_flex_flow(root_, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(root_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(root_, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_fn(root_, LV_EVENT_CLICKED, [this](lv_event_t*) {
+        toggleButtonBar();
+    });
 
+    lv_spacer_create(root_, 0, 0, 1);
     if (name_.set(data_->name(), data_->name_glyphs(), 48)) {
         auto label = lv_label_create(root_);
         lv_obj_set_width(label, LV_PCT(100));
@@ -29,6 +34,7 @@ void SharedCardScreen::build() {
         lv_obj_set_style_pad_hor(label, 20, 0);
     }
 
+    lv_spacer_create(root_, 0, 0, 1);
     image_area_ = lv_container_create(root_);
     lv_obj_set_size(image_area_, LV_PCT(100), 720);
     lv_obj_remove_flag(image_area_, LV_OBJ_FLAG_CLICKABLE);
@@ -41,7 +47,7 @@ void SharedCardScreen::build() {
         lv_obj_center(label);
     }
 
-    lv_spacer_create(root_, 0, 0, 1);
+    lv_spacer_create(root_, 0, 0, 2);
     buildButtonBar();
 }
 
@@ -86,19 +92,28 @@ const lv_font_t *SharedCardScreen::messageFont() {
 }
 
 void SharedCardScreen::buildButtonBar() {
-    auto bar = lv_container_create(root_, LV_FLEX_FLOW_ROW);
-    lv_obj_set_size(bar, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_all(bar, 20, 0);
-    lv_obj_set_style_pad_column(bar, 10, 0);
-    lv_obj_set_style_border_width(bar, 1, 0);
-    lv_obj_set_style_border_color(bar, lv_color_black(), 0);
-    lv_obj_set_style_border_side(bar, LV_BORDER_SIDE_TOP, 0);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    button_bar_ = lv_container_create(root_);
+    lv_obj_set_style_margin_all(button_bar_, 20, 0);
+    lv_obj_add_flag(button_bar_, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(button_bar_, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_align(button_bar_, LV_ALIGN_BOTTOM_MID, 0, -20);
 
+    auto bar = [](lv_obj_t *parent) {
+        auto bar = lv_container_create(parent, lv_color_white());
+        lv_obj_set_height(bar, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_all(bar, 10, 0);
+        lv_obj_set_style_pad_column(bar, 10, 0);
+        lv_obj_set_style_border_width(bar, 1, 0);
+        lv_obj_set_style_border_color(bar, lv_color_black(), 0);
+        lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        return bar;
+    };
     auto button = [](lv_obj_t *parent, const char *icon, const char *title, std::function<void(lv_event_t*)> on_click) {
         auto btn = lv_button_create(parent);
         lv_obj_set_height(btn, 100);
         lv_obj_set_flex_grow(btn, 1);
+        lv_obj_set_style_min_width(btn, 100, 0);
         lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_border_width(btn, 2, 0);
@@ -117,13 +132,33 @@ void SharedCardScreen::buildButtonBar() {
         return label;
     };
 
+    bool has_url = !data_->url().empty();
+    bool has_message = !data_->message().empty();
+    bool has_image2 = data_->share_image_count() >= 2;
+    int data_button_num = has_url + has_message + has_image2;
+    bool stack = data_button_num >= 3;
+
+    lv_obj_t *back_bar = bar(button_bar_), *data_bar = bar(button_bar_);
+    lv_obj_set_width(back_bar, LV_SIZE_CONTENT);
+
+    if (stack) {
+        lv_obj_set_flex_flow(button_bar_, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(button_bar_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_style_pad_row(button_bar_, 20, 0);
+        lv_obj_set_width(data_bar, LV_PCT(100));
+    } else {
+        lv_obj_set_flex_flow(button_bar_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(button_bar_, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_width(data_bar, 160 * data_button_num);
+    }
+
     if (nav_ == Nav::Back) {
-        button(bar, LUCIDE_ARROW_LEFT, "Back", [this](lv_event_t*) {
+        button(back_bar, LUCIDE_ARROW_LEFT, "Back", [](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.pop();
         });
     } else {
-        button(bar, LUCIDE_HOME, "Home", [this](lv_event_t*) {
+        button(back_bar, LUCIDE_HOME, "Home", [](lv_event_t*) {
             auto card = make_resumed_card_screen();
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             if (card) screen_manager.load(card);
@@ -131,17 +166,30 @@ void SharedCardScreen::buildButtonBar() {
         });
     }
 
-    if (!data_->url().empty()) {
-        lv_ver_separator_create(bar);
-        button(bar, LUCIDE_LINK, "URL", [this](lv_event_t*) { openUrlModal(); });
+    if (has_url) {
+        if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
+        button(data_bar, LUCIDE_LINK, "URL", [this](lv_event_t*) { openUrlModal(); });
     }
-    if (!data_->message().empty()) {
-        lv_ver_separator_create(bar);
-        button(bar, LUCIDE_MESSAGE_CIRCLE, "Message", [this](lv_event_t*) { openMessageModal(); });
+    if (has_message) {
+        if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
+        button(data_bar, LUCIDE_MESSAGE_CIRCLE, "Message", [this](lv_event_t*) { openMessageModal(); });
     }
-    if (data_->share_image_count() >= 2) {
-        lv_ver_separator_create(bar);
-        image_toggle_label_ = button(bar, LUCIDE_IMAGES, "Image 2", [this](lv_event_t*) { toggleImage(); });
+    if (has_image2) {
+        if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
+        image_toggle_label_ = button(data_bar, LUCIDE_IMAGES, "Image 2", [this](lv_event_t*) { toggleImage(); });
+    }
+}
+
+void SharedCardScreen::toggleButtonBar() {
+    bool bar_shown = !lv_obj_has_flag(button_bar_, LV_OBJ_FLAG_HIDDEN);
+    if (bar_shown) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        lv_obj_invalidate(root_);
+        lv_obj_add_flag(button_bar_, LV_OBJ_FLAG_HIDDEN);
+    }
+    else {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+        lv_obj_remove_flag(button_bar_, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

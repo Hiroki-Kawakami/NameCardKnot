@@ -36,6 +36,7 @@ private:
     lv_obj_t *image_area_ = nullptr;
     lv_obj_t *image_obj_ = nullptr;
     lv_obj_t *image_toggle_label_ = nullptr;
+    lv_obj_t *button_bar_ = nullptr;
 
     // Message text font: Montserrat -> NotoSansJP (no glyph supplement — that
     // covers the name's rare kanji, not free-form message text).
@@ -43,6 +44,7 @@ private:
     const lv_font_t *messageFont();
 
     void buildButtonBar();
+    void toggleButtonBar();
     bool decodeImage(int index);
     void showImage(int index);
     void toggleImage();
