@@ -258,7 +258,7 @@ void HotKnotScreen::onHotKnotFailed(esp_err_t err) {
 
 void HotKnotScreen::showProgressModal(const char *message) {
     if (modal_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     modal_ = lv_modal_open(root_);
     lv_modal_title_create(modal_, transferTitle());
     modal_message_ = lv_modal_message_create(modal_, message);
@@ -266,16 +266,16 @@ void HotKnotScreen::showProgressModal(const char *message) {
 
 void HotKnotScreen::setProgressMessage(const char *message) {
     if (!modal_message_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     lv_label_set_text(modal_message_, message);
 }
 
 void HotKnotScreen::addModalCloseButton(const char *text) {
     if (!modal_) return;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     lv_modal_button_create(modal_, text, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *) {
         lv_async_call([this]() {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
             back();
         });
     });

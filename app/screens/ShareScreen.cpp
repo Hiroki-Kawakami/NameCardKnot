@@ -58,7 +58,7 @@ void ShareScreen::build() {
         };
         if (!data_->url().empty()) {
             button(LUCIDE_LINK, "URL", [this](lv_event_t*) {
-                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
+                epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
                 auto card = lv_modal_open(root_);
                 lv_modal_title_create(card, "URL");
                 lv_modal_message_create(card, data_->url().c_str());
@@ -91,7 +91,14 @@ void ShareScreen::build() {
 
     createHotKnotStartMessage(contents_);
 
-    {
+    if (!mount_sd_card()) {  // receiving a card in return needs the SD card
+        auto label = lv_label_create(contents_);
+        lv_obj_set_width(label, LV_PCT(100));
+        lv_label_set_text(label, "An SD card is required to receive a card in return.");
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    } else {
         auto button = lv_button_create(contents_);
         lv_obj_set_size(button, LV_PCT(100), 64);
 
@@ -152,6 +159,6 @@ void ShareScreen::onHotKnotDone() {
     start.accept = allow_return_data_;
     memcpy(start.descriptor, descriptor_, sizeof start.descriptor);
     start.own = data_;
-    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     screen_manager.load(std::make_shared<TransferScreen>(std::move(start)));
 }
