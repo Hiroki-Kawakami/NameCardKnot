@@ -170,13 +170,13 @@ void NameCardScreen::buildMenu() {
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_FLOATING);
     lv_obj_add_flag(menu_, LV_OBJ_FLAG_CLICKABLE);   // absorb taps on its own area
     lv_obj_set_size(menu_, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_align(menu_, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(menu_, LV_ALIGN_BOTTOM_MID, 0, -20);
     lv_obj_set_flex_flow(menu_, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(menu_, 20, 0);
+    lv_obj_set_style_margin_all(menu_, 20, 0);
+    lv_obj_set_style_pad_all(menu_, 10, 0);
     lv_obj_set_style_pad_row(menu_, 10, 0);
     lv_obj_set_style_border_width(menu_, 1, 0);
     lv_obj_set_style_border_color(menu_, lv_color_black(), 0);
-    lv_obj_set_style_border_side(menu_, LV_BORDER_SIDE_TOP, 0);
     lv_obj_remove_flag(menu_, LV_OBJ_FLAG_SCROLLABLE);
 
     auto button = [](lv_obj_t *parent, const char *icon, const char *title, std::function<void(lv_event_t*)> on_click) {
@@ -219,7 +219,7 @@ void NameCardScreen::buildMenu() {
             screen_manager.push(std::make_shared<ShareScreen>(shared));
         });
         lv_ver_separator_create(row1);
-        button(row1, LUCIDE_INFO, "Info", [this](lv_event_t*) {
+        button(row1, LUCIDE_LINK, "URL", [this](lv_event_t*) {
             lv_async_call([this]() {
                 closeMenu(false);   // sets QUALITY_ALL; the modal scrim dirties the full screen
                 openInfo();
