@@ -25,6 +25,10 @@ FileBrowserScreen::FileBrowserScreen(std::string path, Mode mode)
 
 void FileBrowserScreen::build() {
     createNavigation("");
+    if (!mount_sd_card()) {
+        showSdError();
+        return;
+    }
     load();
     rebuild();
 }
@@ -284,6 +288,19 @@ void FileBrowserScreen::open(int index) {
     }
 
     openError("Unsupported file:\n" + e.name);
+}
+
+void FileBrowserScreen::showSdError() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+    auto card = lv_modal_open(root_);
+    lv_modal_title_create(card, S().error);
+    lv_modal_message_create(card, S().sd_card_not_found);
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+        lv_async_call([this] {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+            back();
+        });
+    });
 }
 
 void FileBrowserScreen::openError(const std::string &msg) {

@@ -19,12 +19,29 @@
 
 void GalleryScreen::build() {
     createNavigation(S().gallery);
+    if (!mount_sd_card()) {
+        showSdError();
+        return;
+    }
     load();
     rebuild();
 }
 
 void GalleryScreen::back() {
     screen_manager.pop();
+}
+
+void GalleryScreen::showSdError() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+    auto card = lv_modal_open(root_);
+    lv_modal_title_create(card, S().error);
+    lv_modal_message_create(card, S().sd_card_not_found);
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+        lv_async_call([this] {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
+            back();
+        });
+    });
 }
 
 static bool ends_with_snc_pdf(const std::string &s) {
@@ -35,13 +52,7 @@ static bool ends_with_snc_pdf(const std::string &s) {
 
 void GalleryScreen::load() {
     entries_.clear();
-    error_.clear();
     offset_ = 0;
-
-    if (!mount_sd_card()) {
-        error_ = S().sd_card_not_found;
-        return;
-    }
 
     DIR *dir = opendir(RECEIVED_CARDS_DIR);
     if (!dir) return;  // no ReceivedCards dir yet: empty, not an error
@@ -72,16 +83,6 @@ void GalleryScreen::rebuild() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
     lv_obj_clean(contents_);
     row_names_.clear();
-
-    if (!error_.empty()) {
-        auto label = lv_label_create(contents_);
-        lv_obj_set_width(label, LV_PCT(100));
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(label, error_.c_str());
-        lv_obj_set_style_text_font(label, ui_font_24(), 0);
-        lv_obj_set_style_margin_top(label, 40, 0);
-        return;
-    }
 
     if (entries_.empty()) {
         auto label = lv_label_create(contents_);

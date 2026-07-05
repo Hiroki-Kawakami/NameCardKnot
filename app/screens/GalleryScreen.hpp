@@ -24,7 +24,6 @@ private:
         time_t mtime;
     };
     std::vector<Entry> entries_;
-    std::string error_;
     size_t offset_ = 0;
     // Keeps each shown row's NameFont (and glyph blob) alive for the label it
     // built; refilled every rebuild().
@@ -33,4 +32,5 @@ private:
     void load();
     void rebuild();
     void open(int index);
+    void showSdError();
 };

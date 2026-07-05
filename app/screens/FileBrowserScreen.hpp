@@ -41,6 +41,7 @@ private:
     void load();
     void rebuild();
     void open(int index);
+    void showSdError();
     void openError(const std::string &msg);
 
     // Async file load shown in a modal. The loader (a FileLoader) reports
