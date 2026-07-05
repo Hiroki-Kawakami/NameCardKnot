@@ -109,6 +109,8 @@ static void lvgl_init() {
         assert(0);
     }
 
+    lv_lock();
+
     const bsp_size_t         size = bsp_display_get_size();
     const bsp_pixel_format_t fmt  = bsp_display_get_pixel_format();
     const size_t buf_bytes = (size_t)size.width * size.height * bsp_pixel_format_bytes(fmt) / 4;
@@ -169,6 +171,8 @@ static void lvgl_init() {
 
     // EPD: draws only update GRAM until a refresh
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
+
+    lv_unlock();
 }
 
 // The decode options every display path uses (the logical portrait resolution).

@@ -429,6 +429,7 @@ void TransferScreen::terminate(bool ok) {
     }
 
     bootmsg::save(id, msg);
+    lv_refr_now(NULL);   // flush the "Finalizing" text before wait_idle gates the reset
     bsp_display_wait_idle();
     esp_err_t err = bsp_power_hw_reset();
     ESP_LOGE(TAG, "hw reset failed: %s", esp_err_to_name(err));
