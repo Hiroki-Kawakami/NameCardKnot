@@ -225,7 +225,7 @@ void NameCardScreen::buildMenu() {
             screen_manager.push(std::make_shared<ShareScreen>(shared));
         });
         lv_ver_separator_create(row1);
-        button(row1, LUCIDE_LINK, S().url, [this](lv_event_t*) {
+        button(row1, LUCIDE_INFO, S().info, [this](lv_event_t*) {
             lv_async_call([this]() {
                 closeMenu(false);   // sets QUALITY_ALL; the modal scrim dirties the full screen
                 openInfo();

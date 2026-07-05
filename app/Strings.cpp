@@ -20,7 +20,9 @@ Strings make_en() {
     s.receive = "Receive";
     s.gallery = "Gallery";
     s.url = "URL";
+    s.info = "Info";
     s.message = "Message";
+    s.share_preview = "Share Preview";
     s.error = "Error";
     s.no_items = "No Items";
     s.sd_card_not_found = "SD card not found.";
@@ -102,7 +104,9 @@ Strings make_ja() {
     s.receive = "受信";
     s.gallery = "ギャラリー";
     s.url = "URL";
+    s.info = "情報";
     s.message = "メッセージ";
+    s.share_preview = "共有プレビュー";
     s.error = "エラー";
     s.no_items = "アイテムがありません";
     s.sd_card_not_found = "SD カードが見つかりません";

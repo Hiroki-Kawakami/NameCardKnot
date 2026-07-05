@@ -5,6 +5,7 @@
 
 #include "ShareScreen.hpp"
 #include "TransferScreen.hpp"
+#include "SharedCardScreen.hpp"
 #include "NameCardKnot.hpp"
 #include "Nvs.hpp"
 #include "screen_manager.hpp"
@@ -34,62 +35,28 @@ void ShareScreen::build() {
 
     createShareImages(contents_);
 
-    if (!data_->url().empty() || !data_->message().empty()) {
-        auto row = lv_container_create(contents_, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(row, 10, 0);
+    { // Preview Button
+        auto button = lv_button_create(contents_);
+        lv_obj_remove_style_all(button);
+        lv_obj_set_size(button, LV_PCT(100), 64);
+        lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(button, 10, 0);
+        lv_obj_set_style_border_width(button, 2, 0);
+        lv_obj_set_style_radius(button, 8, 0);
+        lv_obj_set_style_border_color(button, lv_color_white(), 0);
+        lv_obj_set_style_border_color(button, lv_color_black(), LV_STATE_PRESSED);
+        lv_obj_add_event_fn(button, LV_EVENT_CLICKED, [this](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+            screen_manager.push(std::make_shared<SharedCardScreen>(data_, SharedCardScreen::Nav::Back));
+        });
 
-        auto button = [row](const char *icon, const char *title, std::function<void(lv_event_t*)> clicked) {
-            auto button = lv_button_create(row);
-            lv_obj_remove_style_all(button);
-            lv_obj_set_height(button, 64);
-            lv_obj_set_flex_grow(button, 1);
-            lv_obj_set_flex_flow(button, LV_FLEX_FLOW_ROW);
-            lv_obj_set_flex_align(button, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_set_style_pad_column(button, 10, 0);
-            lv_obj_set_style_border_width(button, 2, 0);
-            lv_obj_set_style_radius(button, 8, 0);
-            lv_obj_set_style_border_color(button, lv_color_white(), 0);
-            lv_obj_set_style_border_color(button, lv_color_black(), LV_STATE_PRESSED);
-            lv_obj_add_event_fn(button, LV_EVENT_CLICKED, clicked);
-
-            auto icon_label = lv_label_create(button);
-            lv_label_set_text(icon_label, icon);
-            lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
-            auto label = lv_label_create(button);
-            lv_label_set_text(label, title);
-            lv_obj_set_style_text_font(label, ui_font_32(), 0);
-        };
-        if (!data_->url().empty()) {
-            button(LUCIDE_LINK, S().url, [this](lv_event_t*) {
-                epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
-                auto card = lv_modal_open(root_);
-                lv_modal_title_create(card, S().url);
-                lv_modal_message_create(card, data_->url().c_str());
-
-                lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
-                    lv_async_call([card](){
-                        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-                        lv_modal_close(card);
-                    });
-                });
-            });
-        }
-        if (!data_->message().empty()) {
-            if (lv_obj_get_child_count(row) > 0) lv_ver_separator_create(row);
-            button(LUCIDE_MESSAGE_CIRCLE, S().message, [this](lv_event_t*) {
-                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-                auto card = lv_modal_open(root_);
-                lv_modal_title_create(card, S().message);
-                lv_modal_message_create(card, data_->message().c_str());
-
-                lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
-                    lv_async_call([card](){
-                        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
-                        lv_modal_close(card);
-                    });
-                });
-            });
-        }
+        auto icon_label = lv_label_create(button);
+        lv_label_set_text(icon_label, LUCIDE_MIRROR_RECTANGULAR);
+        lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
+        auto label = lv_label_create(button);
+        lv_label_set_text(label, S().share_preview);
+        lv_obj_set_style_text_font(label, ui_font_32(), 0);
     }
 
     createHotKnotStartMessage(contents_);

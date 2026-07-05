@@ -21,7 +21,9 @@ struct Strings {
     const char *receive;
     const char *gallery;
     const char *url;
+    const char *info;
     const char *message;
+    const char *share_preview;
     const char *error;
     const char *no_items;
     const char *sd_card_not_found;
