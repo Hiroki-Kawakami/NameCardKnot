@@ -28,8 +28,7 @@ void SleepScreen::build() {
     lv_obj_set_style_text_font(title, ui_font_48(), 0);
 
     if (cardstore::mycard().available()) {
-        preview_map_ = cardstore::mycard().map_image(cardstore::BLOB_PREVIEW);
-        if (l8view_fill_lv_dsc(preview_map_.view(), preview_dsc_)) {
+        if (readPreview()) {
             auto image = lv_image_create(root_);
             lv_image_set_src(image, &preview_dsc_);
             lv_obj_set_style_pad_top(image, 20, 0);
@@ -57,4 +56,15 @@ void SleepScreen::build() {
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         screen_manager.load(std::make_shared<HomeScreen>());
     });
+}
+
+bool SleepScreen::readPreview() {
+    auto &st = cardstore::mycard();
+    const cardstore::Header *h = st.header();
+    if (!h) return false;
+    const cardstore::Blob &b = h->blobs[cardstore::BLOB_PREVIEW];
+    if (!b.length) return false;
+    preview_buf_.resize(b.length);
+    if (!st.read_blob(cardstore::BLOB_PREVIEW, preview_buf_.data(), b.length)) return false;
+    return l8view_fill_lv_dsc(L8View{preview_buf_.data(), b.w, b.h, b.stride, b.levels}, preview_dsc_);
 }

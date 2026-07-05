@@ -148,17 +148,17 @@ void HomeScreen::refreshBattery() {
 }
 
 void HomeScreen::onDisappear() {
-    // Drop the MMIO-backed image before leaving: an import rewrites the
-    // partition, so no mapping over it may stay live. The name font (which the
-    // just-cleaned label referenced) can go too.
+    // Drop the preview + name font before leaving (the name label referenced the
+    // font); free the RAM copy too.
     if (mycard_section_) lv_obj_clean(mycard_section_);
-    preview_map_ = cardstore::MappedImage{};
+    preview_buf_.clear();
+    preview_buf_.shrink_to_fit();
     name_.reset();
 }
 
 void HomeScreen::importMyCard() {
     if (mycard_section_) lv_obj_clean(mycard_section_);
-    preview_map_ = cardstore::MappedImage{};  // release the mapping before the rewrite
+    preview_buf_.clear();
     name_.reset();
     screen_manager.push(std::make_shared<FileBrowserScreen>("/sdcard", FileBrowserScreen::Mode::ImportMyCard));
 }
@@ -166,12 +166,23 @@ void HomeScreen::importMyCard() {
 void HomeScreen::refreshMyCard() {
     if (!mycard_section_) return;
     lv_obj_clean(mycard_section_);
-    preview_map_ = cardstore::MappedImage{};
+    preview_buf_.clear();
     name_.reset();
     if (cardstore::mycard().available())
         myCardButtonCreate(mycard_section_);
     else
         noCardButtonCreate(mycard_section_);
+}
+
+bool HomeScreen::readPreview() {
+    auto &st = cardstore::mycard();
+    const cardstore::Header *h = st.header();
+    if (!h) return false;
+    const cardstore::Blob &b = h->blobs[cardstore::BLOB_PREVIEW];
+    if (!b.length) return false;
+    preview_buf_.resize(b.length);
+    if (!st.read_blob(cardstore::BLOB_PREVIEW, preview_buf_.data(), b.length)) return false;
+    return l8view_fill_lv_dsc(L8View{preview_buf_.data(), b.w, b.h, b.stride, b.levels}, preview_dsc_);
 }
 
 void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
@@ -188,8 +199,7 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
 
     auto image = lv_image_create(button);
     lv_obj_set_size(image, 169, 300);
-    preview_map_ = cardstore::mycard().map_image(cardstore::BLOB_PREVIEW);
-    if (l8view_fill_lv_dsc(preview_map_.view(), preview_dsc_)) {
+    if (readPreview()) {
         lv_image_set_src(image, &preview_dsc_);
     } else {
         lv_obj_set_style_bg_color(image, lv_color_hex(0x888888), 0);
