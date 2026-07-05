@@ -11,6 +11,7 @@ class ShareScreen : public HotKnotScreen {
 public:
     using HotKnotScreen::HotKnotScreen;
     void build() override;
+    void onAppear() override;
 
 protected:
     const char *transferTitle() const override { return S().share; }

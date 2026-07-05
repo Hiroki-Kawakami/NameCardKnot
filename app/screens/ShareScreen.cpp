@@ -109,6 +109,10 @@ void ShareScreen::build() {
     startHotKnot(BSP_HOTKNOT_ROLE_MASTER);
 }
 
+void ShareScreen::onAppear() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+}
+
 void ShareScreen::onHotKnotReady() {
     if (dokan_descriptor_create(DOKAN_TRANSPORT_WIFI, DOKAN_APP_ID,
                                 descriptor_, sizeof descriptor_) != ESP_OK) {
