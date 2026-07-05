@@ -4,6 +4,7 @@
  */
 
 #include "SettingsScreen.hpp"
+#include "AcknowledgementsScreen.hpp"
 #include "DateTimeScreen.hpp"
 #include "GrayscaleTestScreen.hpp"
 #include "LanguageSelectScreen.hpp"
@@ -152,5 +153,12 @@ void SettingsScreen::build() {
         settings::set_display_flip(!settings::display_flip());
         bsp_power_restart();
     });
-    settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {});
+    settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+        screen_manager.push(std::make_shared<AcknowledgementsScreen>());
+    });
+}
+
+void SettingsScreen::onAppear() {
+    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
 }

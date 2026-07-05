@@ -1,0 +1,20 @@
+# Reach Settings -> Acknowledgements, then page through the license text.
+# Run: nix develop -c ./run.sh simverify simulator/verify/acknowledgements.txt
+#
+# tap takes raw panel coords (960x540); logical screen is 540x960, so
+# panel_x = logical_y, panel_y = 540 - logical_x.
+settle
+tap 453 270                                      # boot language gate: English
+settle
+tap 844 147                                      # Home: Settings
+settle
+tap 803 270                                      # Settings: Acknowledgements
+settle
+capture simulator/verify/out/ack_page1.jpg
+tap 919 42                                        # next page (bottom-right button)
+settle
+capture simulator/verify/out/ack_page2.jpg
+tap 919 498                                       # prev page (bottom-left button)
+settle
+capture simulator/verify/out/ack_page1_again.jpg
+quit

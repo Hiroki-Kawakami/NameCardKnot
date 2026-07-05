@@ -247,7 +247,6 @@ void NameCardScreen::buildMenu() {
     }
     lv_ver_separator_create(row2);
     button(row2, LUCIDE_COG, S().settings, [](lv_event_t*) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         screen_manager.push(std::make_shared<SettingsScreen>());
     });
     lv_ver_separator_create(row2);

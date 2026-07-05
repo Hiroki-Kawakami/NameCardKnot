@@ -463,11 +463,16 @@ of the card), so ghosts never accumulate — hence seeding is no longer needed a
 the resume can paint fast without regard to prior on-glass content. Current
 screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`, `SettingsScreen`,
-`DateTimeScreen`, `GalleryScreen`, `SharedCardScreen`, `LanguageSelectScreen`.
+`DateTimeScreen`, `GalleryScreen`, `SharedCardScreen`, `LanguageSelectScreen`,
+`AcknowledgementsScreen`.
 `HomeScreen` also shows the current date (`bsp_rtc_get_time` +
 `bsp_rtc_time_is_valid`, top-left, refreshed in `build()`/`onAppear()`, blank when
 invalid) and its Settings button pushes `SettingsScreen` (a `NavigationScreen`
-with "Date & Time", "Languages", and "Acknowledgements" rows). The Languages row
+with "Date & Time", "Languages", "Flip Screen", and "Acknowledgements" rows). The
+Acknowledgements row pushes `AcknowledgementsScreen`, a `NavigationScreen` showing
+the consolidated third-party license text (`app/screens/AcknowledgementsText.hpp`)
+as one wrapped label clipped to a viewport, paged one viewport-height at a time by
+prev/next buttons (no touch-drag scroll — EPD can't animate a fling). The Languages row
 pushes `LanguageSelectScreen(Mode::Settings)`: tapping the already-active
 language just pops back, tapping the other one calls `settings::set_language()`
 and `bsp_power_restart()` (every already-built screen must reread `S()`/`ui_font_*()`,

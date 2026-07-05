@@ -9,4 +9,5 @@
 class SettingsScreen : public NavigationScreen {
 public:
     void build() override;
+    void onAppear() override;
 };

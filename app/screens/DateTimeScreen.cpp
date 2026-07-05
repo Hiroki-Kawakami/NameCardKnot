@@ -169,12 +169,10 @@ void DateTimeScreen::build() {
     lv_obj_set_style_pad_column(buttons, 10, 0);
     if (nav_ == Nav::Back) {
         lv_modal_button_create(buttons, S().cancel, LV_MODAL_BUTTON_TYPE_PRIMARY, [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.pop();
         });
     }
     lv_modal_button_create(buttons, S().ok, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
-        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         commit();
     });
 }

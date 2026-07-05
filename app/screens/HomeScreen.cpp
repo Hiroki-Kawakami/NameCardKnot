@@ -108,7 +108,6 @@ void HomeScreen::build() {
         });
         lv_ver_separator_create(row2);
         button(row2, R.icon.cog_80px, S().settings, [](lv_event_t*) {
-            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<SettingsScreen>());
         });
     }
