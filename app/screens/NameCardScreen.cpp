@@ -124,6 +124,7 @@ bool NameCardScreen::menuIsOpen() const {
 
 void NameCardScreen::openMenu() {
     if (!menu_ || menuIsOpen()) return;
+    if (modal_) lv_modal_close(modal_);
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     lv_obj_remove_flag(menu_, LV_OBJ_FLAG_HIDDEN);
 }

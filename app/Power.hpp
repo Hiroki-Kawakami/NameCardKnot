@@ -18,6 +18,7 @@ namespace power {
 void start();
 void set_timeout(Screen *owner, uint32_t ms);  // 0 = never sleep
 void kick();                                   // non-touch activity resets the countdown
+void wake();                                   // side-key recovery from the failed-power-off sleep state
 bool sleeping();                               // true while the sleep sequence renders
 
 // Registered by NameCardScreen while it is on the stack: sleeping then shows

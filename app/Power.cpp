@@ -11,6 +11,7 @@
 #include "screen_manager.hpp"
 #include "NameCardScreen.hpp"
 #include "SleepScreen.hpp"
+#include "HomeScreen.hpp"
 #include "esp_log.h"
 #include <cstdlib>
 
@@ -37,6 +38,19 @@ void set_timeout(Screen *owner, uint32_t ms) {
 
 void kick() {
     lv_display_trigger_activity(NULL);
+}
+
+// Long-press wakes only from the failed-power-off (USB) sleep state; !s_card means
+// the SleepScreen is on glass, so return Home like tapping it does.
+void wake() {
+    s_off_pending = false;
+    kick();
+    if (!s_card) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
+        screen_manager.load(std::make_shared<HomeScreen>());
+    } else if (screen_manager.current_screen() == s_card) {
+        s_card->openMenu();
+    }
 }
 
 bool sleeping() {
@@ -119,6 +133,14 @@ void start() {
     }
 #endif
     lv_timer_create(watchdog_cb, 1000, nullptr);
+
+    if (bsp_button_count() > 0) {
+        // Recover from sleep, and on the card screen open the menu (like a card tap).
+        bsp_button_on_down(0, [](uint8_t, void*) {
+            lv_async_call(wake);
+        }, nullptr);
+    }
+
 }
 
 }  // namespace power
