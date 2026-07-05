@@ -26,9 +26,11 @@ private:
     lv_image_dsc_t preview_dsc_{};
     CardNameLabel name_;  // outlives the name label it builds
     lv_obj_t *date_label_ = nullptr;
+    lv_obj_t *battery_image_ = nullptr;
 
     void refreshMyCard();
     void refreshDate();
+    void refreshBattery();
     void importMyCard();
     void myCardButtonCreate(lv_obj_t *parent);
     void noCardButtonCreate(lv_obj_t *parent);

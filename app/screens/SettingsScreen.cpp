@@ -150,7 +150,7 @@ void SettingsScreen::build() {
     });
     settings_button_create(contents_, LUCIDE_FLIP_VERTICAL, S().screen_orientation, [](lv_event_t*) {
         settings::set_display_flip(!settings::display_flip());
-        bsp_restart();
+        bsp_power_restart();
     });
     settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {});
 }

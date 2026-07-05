@@ -8,6 +8,10 @@ extern "C" {
 
 struct Resources {
     struct {
+        const lv_image_dsc_t *battery_32px;
+        const lv_image_dsc_t *battery_low_32px;
+        const lv_image_dsc_t *battery_medium_32px;
+        const lv_image_dsc_t *battery_full_32px;
         const lv_image_dsc_t *card_sd_80px;
         const lv_image_dsc_t *cog_80px;
         const lv_image_dsc_t *images_80px;

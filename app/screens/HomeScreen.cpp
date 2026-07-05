@@ -31,6 +31,13 @@ void HomeScreen::build() {
     lv_obj_set_style_text_font(date_label_, ui_font_24(), 0);
     refreshDate();
 
+    battery_image_ = lv_image_create(root_);
+    lv_obj_add_flag(battery_image_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(battery_image_, LV_ALIGN_TOP_RIGHT, -4, -4);
+    lv_obj_set_style_image_recolor(battery_image_, lv_color_black(), 0);
+    lv_obj_set_style_image_recolor_opa(battery_image_, LV_OPA_COVER, 0);
+    refreshBattery();
+
     { // Title
         lv_obj_t *title = lv_label_create(root_);
         lv_label_set_text(title, S().app_name);
@@ -111,6 +118,7 @@ void HomeScreen::onAppear() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     refreshMyCard();  // a just-finished import may have replaced the card (new mmap)
     refreshDate();
+    refreshBattery();
 }
 
 void HomeScreen::refreshDate() {
@@ -124,6 +132,20 @@ void HomeScreen::refreshDate() {
     } else {
         lv_label_set_text(date_label_, "");
     }
+}
+
+void HomeScreen::refreshBattery() {
+    uint8_t pct = 0;
+    if (bsp_power_get_battery_level(&pct) != ESP_OK) {
+        lv_obj_add_flag(battery_image_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    const lv_image_dsc_t *icon = pct >= 80 ? R.icon.battery_full_32px
+                               : pct >= 50 ? R.icon.battery_medium_32px
+                               : pct >= 20 ? R.icon.battery_low_32px
+                                           : R.icon.battery_32px;
+    lv_image_set_src(battery_image_, icon);
+    lv_obj_remove_flag(battery_image_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void HomeScreen::onDisappear() {

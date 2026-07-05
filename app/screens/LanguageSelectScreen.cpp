@@ -56,7 +56,7 @@ void LanguageSelectScreen::onSelect(const std::string &code) {
         return;
     }
     settings::set_language(code);
-    bsp_restart();
+    bsp_power_restart();
 }
 
 void LanguageSelectScreen::build() {

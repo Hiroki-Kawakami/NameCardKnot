@@ -343,13 +343,39 @@ op is defined as callable while running. Volume/mute are `CAP_PCM`-gated;
 buzzer loudness is fixed. `bsp_config.audio` selects `dsp_mode`/`speaker_mode`.
 
 - **paper_s3 device**: `driver/pwm_buzzer/` (generic LEDC provider — fixed 50%
-  duty, pin idles low for the AC-coupled gate drive) on GPIO21; `bsp_restart`/
+  duty, pin idles low for the AC-coupled gate drive) on GPIO21; `bsp_power_restart`/
   `bsp_power_off` call `bsp_audio_quiesce()`. The `paper` board has no audio.
 - **simulator**: `simulator/sdl_audio.c` mirrors the board's caps — the
   paper_s3 sim registers `tone_only` (square-wave synth, buzzer timbre); PCM
   mode (for speaker boards) exercises the full DSP/route path with SDL
   queue-audio backpressure, silent-but-paced under `SIMULATOR_HEADLESS`.
 - Host tests (`esp-devkit/bsp/test/run.sh`): [`docs/testing.md`](docs/testing.md).
+
+### Power (`bsp_power_*`)
+
+Two unrelated things under one prefix. **Controls** (always available, board free
+functions — not a vtable): `bsp_power_off` (cut VSYS; `ESP_FAIL` when external
+power holds the rail up), `bsp_power_restart` (soft `esp_restart`),
+`bsp_power_hw_reset` (hardware power-cycle, e.g. via the RTC countdown).
+**Sensing** is capability-based behind the usual vtable (`bsp_power_t` in
+`inc_private/bsp_power.h`, dispatch in `src/bsp_power.c`, provider registered by
+`bsp_power_set_active`; no provider → caps 0, calls → `ESP_ERR_NOT_SUPPORTED` /
+`vbus_present` false): `bsp_power_get_caps` (`BATTERY`/`VBUS`),
+`bsp_power_get_battery_voltage` (mV, the ground truth), `bsp_power_get_battery_level`
+(linear **0..100** map of the terminal voltage between the board's empty/full
+endpoints — a coarse gauge, **not** a true SoC, since these boards have no fuel
+gauge; % / voltage→level curve stays app policy above this), and
+`bsp_power_vbus_present`.
+
+- **simulator** (`simulator/power_sim.c`): fake battery/VBUS so the seam is
+  exercisable — level from `SIMULATOR_BATTERY_PERCENT` (default 76), voltage
+  derived over a 1S Li-ion range, VBUS present unless `SIMULATOR_VBUS=0`.
+- **device** (`driver/adc_battery/`): generic provider over `adc_oneshot` +
+  `adc_cali` — reads the battery on an ADC pin through a resistor divider (no
+  fuel-gauge IC); config = ADC channel/atten + divider + empty/full mV +
+  optional VBUS-sense GPIO. **paper** (GPIO35/ADC1_CH7, no VBUS) and **paper_s3**
+  (GPIO3/ADC1_CH2 off MPWR_EN, +VBUS from USB_DET on GPIO5) both wired: ×2
+  22K/22K divider, 3300–4200 mV.
 
 ## UI framework — LVGL port abstraction + UI utilities
 
@@ -444,7 +470,7 @@ invalid) and its Settings button pushes `SettingsScreen` (a `NavigationScreen`
 with "Date & Time", "Languages", and "Acknowledgements" rows). The Languages row
 pushes `LanguageSelectScreen(Mode::Settings)`: tapping the already-active
 language just pops back, tapping the other one calls `settings::set_language()`
-and `bsp_restart()` (every already-built screen must reread `S()`/`ui_font_*()`,
+and `bsp_power_restart()` (every already-built screen must reread `S()`/`ui_font_*()`,
 so a restart is simpler than rebuilding the tree live). `DateTimeScreen` is a modal-on-white
 Year/Month/Day/Hour/Minute stepper (`Nav::Boot` from the boot gate above, OK-only,
 loads `HomeScreen`; `Nav::Back` from `SettingsScreen`, adds Cancel, pops) that
@@ -498,7 +524,7 @@ per what the card provides. The receive flow closes the loop:
 `RECEIVED_CARDS_DIR` and calls `lastcard::save_received(path)` (a one-shot NVS
 pending-open record); `TransferScreen` itself never shows the result — it saves
 a `bootmsg` (`ShareFailed`/`ReceiveFailed`/`TransferFailed`, or `TransferComplete`
-on success) and calls `bsp_hw_reset()` ("Finalizing" stays on glass through the
+on success) and calls `bsp_power_hw_reset()` ("Finalizing" stays on glass through the
 reset; touch is dead after a HotKnot session). At boot, `BootMessageScreen` for
 `TransferComplete` consumes `lastcard::take_received()` itself and, when a card
 is pending, offers Open Card (`SharedCardScreen(Nav::Received)`) / Back instead
@@ -511,7 +537,7 @@ out of `app_entry`) to reopen the `NameCardScreen` still recorded in lastcard NV
 if any (e.g. Receive was opened from its menu), else `HomeScreen`. A HotKnot
 failure past pairing has no tappable UI (touch is dead), so `HotKnotScreen::
 failAndReboot` instead saves an `app/BootMessage` record and calls
-`bsp_hw_reset()`; on `paper` with USB power a failed reset clears the record
+`bsp_power_hw_reset()`; on `paper` with USB power a failed reset clears the record
 again and loads `BootMessageScreen` (`Mode::ResetFailed`) directly with a
 "press the reset button" hint — the message is already on glass, so the manual
 reset boots normally.

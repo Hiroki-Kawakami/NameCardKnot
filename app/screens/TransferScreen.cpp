@@ -430,7 +430,7 @@ void TransferScreen::terminate(bool ok) {
 
     bootmsg::save(id, msg);
     bsp_display_wait_idle();
-    esp_err_t err = bsp_hw_reset();
+    esp_err_t err = bsp_power_hw_reset();
     ESP_LOGE(TAG, "hw reset failed: %s", esp_err_to_name(err));
 
     // Still here: USB kept VSYS up. Show the message directly instead of at boot.

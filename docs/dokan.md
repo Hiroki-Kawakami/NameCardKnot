@@ -425,7 +425,7 @@ WiFi transport は device 専用なので host テスト不可。実機検証は
             │  RAM の TransferStart{role, offer, accept, descriptor, own} を渡す
             ▼  screen_manager.load() （再起動も NVS も挟まない）
 [ TransferScreen ]  app/screens/TransferScreen.{hpp,cpp}（単一具象・両ロール共通）
-       dokan_open → HELLO 交換 → 条件付き CARD 転送 → 加重進捗 → 自動保存 → bsp_restart
+       dokan_open → HELLO 交換 → 条件付き CARD 転送 → 加重進捗 → 自動保存 → bsp_power_restart
 ```
 
 当初は GT911 復帰のため HotKnot 後に一度再起動してから dokan を始める設計だったが、dokan の転送が
