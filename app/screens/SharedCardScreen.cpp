@@ -11,6 +11,8 @@
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 
 SharedCardScreen::SharedCardScreen(std::shared_ptr<SharedCardData> data, Nav nav)
     : data_(std::move(data)), nav_(nav) {}
@@ -43,8 +45,8 @@ void SharedCardScreen::build() {
         showImage(0);
     } else {
         auto label = lv_label_create(image_area_);
-        lv_label_set_text(label, "Cannot load image");
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_label_set_text(label, S().cannot_load_image);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
         lv_obj_center(label);
     }
 
@@ -84,7 +86,7 @@ void SharedCardScreen::toggleImage() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
     showImage(next);
     if (image_toggle_label_)
-        lv_label_set_text(image_toggle_label_, shown_image_ == 0 ? "Image 2" : "Image 1");
+        lv_label_set_text(image_toggle_label_, shown_image_ == 0 ? S().image_2 : S().image_1);
 }
 
 const lv_font_t *SharedCardScreen::messageFont() {
@@ -129,7 +131,7 @@ void SharedCardScreen::buildButtonBar() {
 
         auto label = lv_label_create(btn);
         lv_label_set_text(label, title);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
         return label;
     };
 
@@ -154,14 +156,14 @@ void SharedCardScreen::buildButtonBar() {
     }
 
     if (nav_ == Nav::Back) {
-        button(back_bar, LUCIDE_ARROW_LEFT, "Back", [](lv_event_t*) {
+        button(back_bar, LUCIDE_ARROW_LEFT, S().back, [](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.pop();
         });
     } else {
         bool resumes_card = lastcard::load().source != lastcard::Source::None;
         button(back_bar, resumes_card ? LUCIDE_ARROW_LEFT : LUCIDE_HOME,
-               resumes_card ? "Back" : "Home", [](lv_event_t*) {
+               resumes_card ? S().back : S().home, [](lv_event_t*) {
             auto card = make_resumed_card_screen();
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             if (card) screen_manager.load(card);
@@ -171,15 +173,15 @@ void SharedCardScreen::buildButtonBar() {
 
     if (has_url) {
         if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
-        button(data_bar, LUCIDE_LINK, "URL", [this](lv_event_t*) { openUrlModal(); });
+        button(data_bar, LUCIDE_LINK, S().url, [this](lv_event_t*) { openUrlModal(); });
     }
     if (has_message) {
         if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
-        button(data_bar, LUCIDE_MESSAGE_CIRCLE, "Message", [this](lv_event_t*) { openMessageModal(); });
+        button(data_bar, LUCIDE_MESSAGE_CIRCLE, S().message, [this](lv_event_t*) { openMessageModal(); });
     }
     if (has_image2) {
         if (lv_obj_get_child_count(data_bar)) lv_ver_separator_create(data_bar);
-        image_toggle_label_ = button(data_bar, LUCIDE_IMAGES, "Image 2", [this](lv_event_t*) { toggleImage(); });
+        image_toggle_label_ = button(data_bar, LUCIDE_IMAGES, S().image_2, [this](lv_event_t*) { toggleImage(); });
     }
 }
 
@@ -213,7 +215,7 @@ void SharedCardScreen::openUrlModal() {
     lv_obj_set_style_pad_ver(url, 10, 0);
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
         lv_async_call([card]() {
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
             lv_modal_close(card);
@@ -224,11 +226,11 @@ void SharedCardScreen::openUrlModal() {
 void SharedCardScreen::openMessageModal() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     auto card = lv_modal_open(root_);
-    lv_modal_title_create(card, "Message");
+    lv_modal_title_create(card, S().message);
     auto msg = lv_modal_message_create(card, data_->message().c_str());
     lv_obj_set_style_text_font(msg, messageFont(), 0);
 
-    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
         lv_async_call([card]() {
             epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
             lv_modal_close(card);

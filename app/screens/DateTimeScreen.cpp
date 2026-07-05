@@ -7,6 +7,8 @@
 #include "widgets.hpp"
 #include "NameCardKnot.hpp"
 #include "HomeScreen.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <cstdio>
 
 static bool is_leap_year(int year) {
@@ -80,18 +82,18 @@ void DateTimeScreen::columnCreate(lv_obj_t *parent, const char *caption, lv_obj_
     lv_obj_add_event_fn(plus, LV_EVENT_CLICKED, [step](lv_event_t*) { step(1); });
     auto plus_label = lv_label_create(plus);
     lv_label_set_text(plus_label, "+");
-    lv_obj_set_style_text_font(plus_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(plus_label, ui_font_32(), 0);
     lv_obj_center(plus_label);
 
     label = lv_label_create(col);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(label, ui_font_32(), 0);
 
     auto minus = lv_button_create(col);
     lv_obj_set_size(minus, kColumnWidth, 56);
     lv_obj_add_event_fn(minus, LV_EVENT_CLICKED, [step](lv_event_t*) { step(-1); });
     auto minus_label = lv_label_create(minus);
     lv_label_set_text(minus_label, "-");
-    lv_obj_set_style_text_font(minus_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(minus_label, ui_font_32(), 0);
     lv_obj_center(minus_label);
 
     auto cap = lv_label_create(col);
@@ -120,7 +122,7 @@ void DateTimeScreen::commit() {
 
 void DateTimeScreen::build() {
     auto card = lv_modal_open(root_);
-    lv_modal_title_create(card, "Date & Time");
+    lv_modal_title_create(card, S().date_time);
 
     auto row1 = lv_container_create(card, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(row1, 8, 0);
@@ -166,12 +168,12 @@ void DateTimeScreen::build() {
     auto buttons = lv_container_create(card, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(buttons, 10, 0);
     if (nav_ == Nav::Back) {
-        lv_modal_button_create(buttons, "Cancel", LV_MODAL_BUTTON_TYPE_PRIMARY, [](lv_event_t*) {
+        lv_modal_button_create(buttons, S().cancel, LV_MODAL_BUTTON_TYPE_PRIMARY, [](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.pop();
         });
     }
-    lv_modal_button_create(buttons, "OK", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+    lv_modal_button_create(buttons, S().ok, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         commit();
     });

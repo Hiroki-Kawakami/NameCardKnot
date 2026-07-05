@@ -78,4 +78,7 @@ void set_share_receive_return(bool value);
 bool receive_send_return();           // ReceiveScreen "Also send my card in return"
 void set_receive_send_return(bool value);
 
+std::string language();               // "en"/"ja", "" = unset (first-boot picker)
+void set_language(const std::string &lang);
+
 }  // namespace settings

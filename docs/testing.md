@@ -33,6 +33,13 @@ re-drawn). A sim run that sleeps produces `clean` itself
 sleep-run followed by a boot-run against the same NVS file covers the full
 power cycle.
 
+Since NVS starts empty, `settings::language()` is also empty on every headless
+run, so boot always lands on the language picker first. The idiom: every script
+opens with `settle` / `tap 453 270` (= "English") / `settle` before its real
+first step — see any script in `simulator/verify/` for the exact lines, or
+`simulator/verify/language.txt` for the picker itself (boot capture, tap 日本語,
+Home + Settings → Languages in Japanese).
+
 The idle power-off can be exercised with `SIMULATOR_SLEEP_TIMEOUT_MS` (overrides
 every screen's timeout except disabled ones); the sim's `bsp_power_off` logs
 `[sim] bsp_power_off: staying on` and returns ESP_FAIL, like a USB-powered

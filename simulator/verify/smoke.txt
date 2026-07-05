@@ -1,5 +1,11 @@
 # Smoke test: let the app draw its first frame, then capture it.
 # Run: ./run.sh simverify simulator/verify/smoke.txt
+#
+# NVS starts empty each headless run, so boot always lands on the language
+# picker first; tap 453 270 = "English" (panel_x = logical_y, panel_y = 540 -
+# logical_x, per docs/testing.md).
+settle
+tap 453 270                                      # boot language gate: English
 settle
 capture simulator/verify/out/smoke.jpg
 quit

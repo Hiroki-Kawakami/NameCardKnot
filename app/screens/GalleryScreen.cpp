@@ -8,6 +8,8 @@
 #include "SharedCardData.hpp"
 #include "SharedCardScreen.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -16,7 +18,7 @@
 #include <sys/stat.h>
 
 void GalleryScreen::build() {
-    createNavigation("Gallery");
+    createNavigation(S().gallery);
     load();
     rebuild();
 }
@@ -37,7 +39,7 @@ void GalleryScreen::load() {
     offset_ = 0;
 
     if (!mount_sd_card()) {
-        error_ = "SD card not found.";
+        error_ = S().sd_card_not_found;
         return;
     }
 
@@ -76,7 +78,7 @@ void GalleryScreen::rebuild() {
         lv_obj_set_width(label, LV_PCT(100));
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_text(label, error_.c_str());
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
         lv_obj_set_style_margin_top(label, 40, 0);
         return;
     }
@@ -85,8 +87,8 @@ void GalleryScreen::rebuild() {
         auto label = lv_label_create(contents_);
         lv_obj_set_width(label, LV_PCT(100));
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(label, "No Items");
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_label_set_text(label, S().no_items);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
         lv_obj_set_style_margin_top(label, 40, 0);
         return;
     }
@@ -132,7 +134,7 @@ void GalleryScreen::rebuild() {
             row_names_.push_back(std::move(name_label));
         } else {
             lv_label_set_text(name_widget, e.name.c_str());
-            lv_obj_set_style_text_font(name_widget, &lv_font_montserrat_24, 0);
+            lv_obj_set_style_text_font(name_widget, ui_font_24(), 0);
         }
         lv_obj_set_width(name_widget, LV_PCT(100));
         lv_label_set_long_mode(name_widget, LV_LABEL_LONG_DOT);
@@ -145,7 +147,7 @@ void GalleryScreen::rebuild() {
                  tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour, tmv.tm_min);
         auto date_widget = lv_label_create(row);
         lv_label_set_text(date_widget, buf);
-        lv_obj_set_style_text_font(date_widget, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(date_widget, ui_font_24(), 0);
     }
 
     auto status = lv_container_create(contents_);
@@ -155,10 +157,10 @@ void GalleryScreen::rebuild() {
     lv_obj_set_style_border_color(status, lv_color_black(), 0);
 
     auto label = lv_label_create(status);
-    auto status_str = std::to_string(entries_.size()) + " Items ";
-    status_str += "(" + std::to_string(page + 1) + "/" + std::to_string(page_num) + ")";
-    lv_label_set_text(label, status_str.c_str());
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    char status_buf[64];
+    snprintf(status_buf, sizeof status_buf, S().items_page_fmt, (int)entries_.size(), page + 1, page_num);
+    lv_label_set_text(label, status_buf);
+    lv_obj_set_style_text_font(label, ui_font_24(), 0);
     lv_obj_center(label);
 
     if (has_prev_page) {

@@ -383,6 +383,10 @@ EPD) so esp-devkit stays reusable across boards. It ships two things:
 - **`widgets/layout.hpp`** (pulled in by `lvgl.hpp`): flex-layout helpers —
   `lv_container_create` (style-stripped, optionally flex/colored), `lv_spacer_create`
   (grow-able), and `lv_{hor,ver}_separator_create`.
+- **`widgets/fonts.hpp`**: an app-injectable font seam for `widgets/navigation.cpp`
+  + `widgets/modal.cpp` (title/body) — `lv_widgets_set_fonts(title, body)`, falling
+  back to `&lv_font_montserrat_32`/`_24` until called. Keeps esp-devkit font-free;
+  the app wires its own chains in (see Strings/UiFont below).
 
 ### The BSP↔LVGL binding + EPD policy live in the app
 
@@ -403,7 +407,11 @@ caveats: [`docs/gotchas.md`](docs/gotchas.md).
 
 `app/screens/` holds the `Screen` subclasses; each builds its tree in `build()`
 and is loaded via the `screen_manager`. `app_entry()` picks the first screen
-with `lv_async_call` (onto the LVGL context): a pending `app/BootMessage`
+with `lv_async_call` (onto the LVGL context): the very first gate is the
+language, ahead of everything below — if NVS `settings::language()` is unset
+(first boot), it clears the panel and loads `LanguageSelectScreen(Mode::Boot)`;
+tapping a language calls `strings::set()` and runs the same continuation the
+rest of this gate would have run directly. A pending `app/BootMessage`
 record takes priority over everything below — it
 loads `BootMessageScreen` as a modal without clearing the EPD first (only the
 modal rect is driven), and OK returns to the resumed card screen or Home.
@@ -429,10 +437,15 @@ of the card), so ghosts never accumulate — hence seeding is no longer needed a
 the resume can paint fast without regard to prior on-glass content. Current
 screens:
 `HomeScreen` (entry menu), `FileBrowserScreen`, `NameCardScreen`, `SettingsScreen`,
-`DateTimeScreen`, `GalleryScreen`, `SharedCardScreen`. `HomeScreen` also shows the current date (`bsp_rtc_get_time` +
+`DateTimeScreen`, `GalleryScreen`, `SharedCardScreen`, `LanguageSelectScreen`.
+`HomeScreen` also shows the current date (`bsp_rtc_get_time` +
 `bsp_rtc_time_is_valid`, top-left, refreshed in `build()`/`onAppear()`, blank when
 invalid) and its Settings button pushes `SettingsScreen` (a `NavigationScreen`
-with "Date & Time" and "Grayscale Test" rows). `DateTimeScreen` is a modal-on-white
+with "Date & Time", "Languages", and "Acknowledgements" rows). The Languages row
+pushes `LanguageSelectScreen(Mode::Settings)`: tapping the already-active
+language just pops back, tapping the other one calls `settings::set_language()`
+and `bsp_restart()` (every already-built screen must reread `S()`/`ui_font_*()`,
+so a restart is simpler than rebuilding the tree live). `DateTimeScreen` is a modal-on-white
 Year/Month/Day/Hour/Minute stepper (`Nav::Boot` from the boot gate above, OK-only,
 loads `HomeScreen`; `Nav::Back` from `SettingsScreen`, adds Cancel, pops) that
 computes the weekday (Sakamoto's algorithm) and calls `bsp_rtc_set_time` on OK.
@@ -550,6 +563,17 @@ the hand-written `resources.{c,h}` gathers them into the single `const struct
 Resources R` that app code reads (`R.icon.*`, `R.font.*`). `Lucide_License.txt` is
 the ISC license for the icon set. All of `app/` is GLOB'd into the build, so new
 files are picked up after a cmake re-run (see `app/CMakeLists.txt`).
+
+**i18n (Japanese/English)**: `app/Strings.{hpp,cpp}` is a flat, concept-named
+`struct Strings` (`close`, `cancel`, `items_page_fmt`, ...) with an En and a Ja
+table; screens read the active one through `S()` and switch it with
+`strings::set(Lang)`. `app/UiFont.{hpp,cpp}` builds three Montserrat→NotoSansJP
+fallback chains (`ui_font_24/32/48()`) that every screen uses in place of
+`&lv_font_montserrat_*`; `ui_font_init()` also feeds the LVGL theme default
+(`lv_theme_mono_init(..., ui_font_24())`) and the `ui_framework` widget-font seam
+(`lv_widgets_set_fonts(ui_font_32(), ui_font_24())`), both called once from
+`lvgl_init()`. `settings::language()`/`set_language()` (`Nvs.hpp`, NVS key
+`lang`) persist the choice.
 
 ## Image processing — `components/image_processor` over `esp-devkit/libs/image_framework`
 

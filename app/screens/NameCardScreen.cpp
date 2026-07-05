@@ -14,6 +14,8 @@
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <cstring>
 
 NameCardScreen::NameCardScreen(std::shared_ptr<NameCardData> data, Nav nav)
@@ -50,8 +52,8 @@ void NameCardScreen::showImage() {
         lv_obj_center(contents_);
     } else {
         contents_ = lv_label_create(root_);
-        lv_label_set_text(contents_, "No image");
-        lv_obj_set_style_text_font(contents_, &lv_font_montserrat_24, 0);
+        lv_label_set_text(contents_, S().no_image);
+        lv_obj_set_style_text_font(contents_, ui_font_24(), 0);
         lv_obj_center(contents_);
     }
     if (menu_) lv_obj_move_foreground(menu_);   // poll() adds the image after build
@@ -201,7 +203,7 @@ void NameCardScreen::buildMenu() {
 
         auto label = lv_label_create(button);
         lv_label_set_text(label, title);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
     };
 
     if (data_->is_card()) {
@@ -209,21 +211,21 @@ void NameCardScreen::buildMenu() {
         lv_obj_set_size(row1, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_column(row1, 10, 0);
         lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row1, LUCIDE_SQUARE_ARROW_RIGHT_ENTER, "Receive", [this](lv_event_t*) {
+        button(row1, LUCIDE_SQUARE_ARROW_RIGHT_ENTER, S().receive, [this](lv_event_t*) {
             auto shared = data_->share();
             if (shared && !shared->valid()) shared = nullptr;
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<ReceiveScreen>(shared));
         });
         lv_ver_separator_create(row1);
-        button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, "Share", [this](lv_event_t*) {
+        button(row1, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT, S().share, [this](lv_event_t*) {
             auto shared = data_->share();
             if (!shared || !shared->valid()) return;
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<ShareScreen>(shared));
         });
         lv_ver_separator_create(row1);
-        button(row1, LUCIDE_LINK, "URL", [this](lv_event_t*) {
+        button(row1, LUCIDE_LINK, S().url, [this](lv_event_t*) {
             lv_async_call([this]() {
                 closeMenu(false);   // sets QUALITY_ALL; the modal scrim dirties the full screen
                 openInfo();
@@ -238,17 +240,17 @@ void NameCardScreen::buildMenu() {
     lv_obj_set_style_pad_column(row2, 10, 0);
     lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     if (nav_ == Nav::Back) {
-        button(row2, LUCIDE_ARROW_LEFT, "Back", [this](lv_event_t*) { leave(); });
+        button(row2, LUCIDE_ARROW_LEFT, S().back, [this](lv_event_t*) { leave(); });
     } else {
-        button(row2, LUCIDE_HOME, "Home", [this](lv_event_t*) { leave(); });
+        button(row2, LUCIDE_HOME, S().home, [this](lv_event_t*) { leave(); });
     }
     lv_ver_separator_create(row2);
-    button(row2, LUCIDE_COG, "Settings", [](lv_event_t*) {
+    button(row2, LUCIDE_COG, S().settings, [](lv_event_t*) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         screen_manager.push(std::make_shared<SettingsScreen>());
     });
     lv_ver_separator_create(row2);
-    button(row2, LUCIDE_X, "Close", [this](lv_event_t*) { closeMenu(true); });
+    button(row2, LUCIDE_X, S().close, [this](lv_event_t*) { closeMenu(true); });
 }
 
 const lv_font_t *NameCardScreen::nameFont() {
@@ -281,7 +283,7 @@ void NameCardScreen::openInfo() {
     lv_obj_set_style_pad_ver(url, 10, 0);
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
         clearDisplay();
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
         lv_obj_t *m = modal_;

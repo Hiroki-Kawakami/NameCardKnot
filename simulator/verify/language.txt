@@ -1,0 +1,14 @@
+# Boot language gate + Settings -> Languages picker (Japanese localization).
+# tap: panel_x = logical_y, panel_y = 540 - logical_x (see docs/testing.md).
+settle
+capture simulator/verify/out/language_picker_boot.jpg
+tap 565 270                                      # boot language gate: 日本語
+settle
+capture simulator/verify/out/home_ja.jpg
+tap 844 147                                      # Home: Settings
+settle
+capture simulator/verify/out/settings_ja.jpg
+tap 645 270                                      # Settings: Languages
+settle
+capture simulator/verify/out/language_picker_settings.jpg
+quit

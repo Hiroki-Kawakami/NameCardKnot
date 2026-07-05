@@ -13,7 +13,7 @@ public:
     void build() override;
 
 protected:
-    const char *transferTitle() const override { return "Share"; }
+    const char *transferTitle() const override { return S().share; }
     void onHotKnotReady() override;
     void onHotKnotDone() override;
     bootmsg::Id bootMsgId() const override { return bootmsg::Id::ShareFailed; }

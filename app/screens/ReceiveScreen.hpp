@@ -12,7 +12,7 @@ public:
     void build() override;
 
 protected:
-    const char *transferTitle() const override { return "Receive"; }
+    const char *transferTitle() const override { return S().receive; }
     void stashReceived(const uint8_t *data, size_t len) override;
     void onHotKnotDone() override;
     bootmsg::Id bootMsgId() const override { return bootmsg::Id::ReceiveFailed; }

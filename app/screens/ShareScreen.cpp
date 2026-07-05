@@ -9,10 +9,12 @@
 #include "Nvs.hpp"
 #include "screen_manager.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <cstring>
 
 void ShareScreen::build() {
-    createNavigation("Share");
+    createNavigation(S().share);
     lv_obj_set_style_border_width(navigation_, 0, 0);
     lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(contents_, 20, 0);
@@ -55,16 +57,16 @@ void ShareScreen::build() {
             lv_obj_set_style_text_font(icon_label, R.font.lucide_40, 0);
             auto label = lv_label_create(button);
             lv_label_set_text(label, title);
-            lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+            lv_obj_set_style_text_font(label, ui_font_32(), 0);
         };
         if (!data_->url().empty()) {
-            button(LUCIDE_LINK, "URL", [this](lv_event_t*) {
+            button(LUCIDE_LINK, S().url, [this](lv_event_t*) {
                 epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
                 auto card = lv_modal_open(root_);
-                lv_modal_title_create(card, "URL");
+                lv_modal_title_create(card, S().url);
                 lv_modal_message_create(card, data_->url().c_str());
 
-                lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
+                lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
                     lv_async_call([card](){
                         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
                         lv_modal_close(card);
@@ -74,13 +76,13 @@ void ShareScreen::build() {
         }
         if (!data_->message().empty()) {
             if (lv_obj_get_child_count(row) > 0) lv_ver_separator_create(row);
-            button(LUCIDE_MESSAGE_CIRCLE, "Message", [this](lv_event_t*) {
+            button(LUCIDE_MESSAGE_CIRCLE, S().message, [this](lv_event_t*) {
                 epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
                 auto card = lv_modal_open(root_);
-                lv_modal_title_create(card, "Message");
+                lv_modal_title_create(card, S().message);
                 lv_modal_message_create(card, data_->message().c_str());
 
-                lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
+                lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t *e) {
                     lv_async_call([card](){
                         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY);
                         lv_modal_close(card);
@@ -95,10 +97,10 @@ void ShareScreen::build() {
     if (!mount_sd_card()) {  // receiving a card in return needs the SD card
         auto label = lv_label_create(contents_);
         lv_obj_set_width(label, LV_PCT(100));
-        lv_label_set_text(label, "An SD card is required to receive a card in return.");
+        lv_label_set_text(label, S().sd_required_to_receive);
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
     } else {
         auto button = lv_button_create(contents_);
         lv_obj_set_size(button, LV_PCT(100), 64);
@@ -118,7 +120,7 @@ void ShareScreen::build() {
 
             lv_obj_clean(container);
             auto checkbox = lv_label_create(container);
-            lv_obj_set_style_text_font(checkbox, &lv_font_montserrat_24, 0);
+            lv_obj_set_style_text_font(checkbox, ui_font_24(), 0);
             lv_obj_set_size(checkbox, 24, 24);
             lv_obj_set_style_border_width(checkbox, 1, 0);
             if (allow_return_data_) {
@@ -130,8 +132,8 @@ void ShareScreen::build() {
             }
 
             auto label = lv_label_create(container);
-            lv_label_set_text(label, "Also receive their card in return");
-            lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+            lv_label_set_text(label, S().also_receive_return);
+            lv_obj_set_style_text_font(label, ui_font_24(), 0);
         };
         createCheckbox(nullptr);
         lv_obj_add_event_fn(button, LV_EVENT_CLICKED, createCheckbox);

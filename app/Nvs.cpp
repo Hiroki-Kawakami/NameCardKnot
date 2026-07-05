@@ -262,4 +262,7 @@ void set_share_receive_return(bool v)  { set_bool("share_ret", v); }
 bool receive_send_return()             { return get_bool("recv_ret", false); }
 void set_receive_send_return(bool v)   { set_bool("recv_ret", v); }
 
+std::string language()                          { return get_str("lang", ""); }
+void set_language(const std::string &lang)      { set_str("lang", lang); }
+
 }  // namespace settings

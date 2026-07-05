@@ -6,12 +6,14 @@
 #include "SettingsScreen.hpp"
 #include "DateTimeScreen.hpp"
 #include "GrayscaleTestScreen.hpp"
+#include "LanguageSelectScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include "resources.h"
 
 // ---- Editable about-page content ------------------------------------------
 namespace {
-constexpr const char kAppName[] = "Name Card Knot";
 constexpr const char kAuthorName[] = "Hiroki Kawakami";
 constexpr const char kRepoUrl[] = "https://github.com/Hiroki-Kawakami/NameCardKnot";
 }  // namespace
@@ -43,11 +45,12 @@ static lv_obj_t *info_row_create(lv_obj_t *parent, const char *icon, const char 
 
     lv_obj_t *title_label = lv_label_create(col);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(title_label, ui_font_24(), 0);
 
     if (value && value[0]) {
         lv_obj_t *value_label = lv_label_create(col);
         lv_label_set_text(value_label, value);
+        lv_obj_set_style_text_font(value_label, &lv_font_montserrat_14, 0);
     }
     return row;
 }
@@ -73,13 +76,13 @@ static lv_obj_t *settings_button_create(lv_obj_t *parent, const char *icon, cons
 
     lv_obj_t *title_label = lv_label_create(button);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(title_label, ui_font_24(), 0);
 
     return button;
 }
 
 void SettingsScreen::build() {
-    createNavigation("Settings");
+    createNavigation(S().settings);
     lv_obj_set_style_border_width(navigation_, 0, 0);
     lv_obj_set_style_pad_hor(contents_, 20, 0);
     lv_obj_set_style_pad_bottom(contents_, 20, 0);
@@ -98,17 +101,17 @@ void SettingsScreen::build() {
         lv_obj_set_style_text_font(mark, R.font.lucide_40, 0);
 
         lv_obj_t *name = lv_label_create(block);
-        lv_label_set_text(name, kAppName);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_48, 0);
+        lv_label_set_text(name, S().app_name);
+        lv_obj_set_style_text_font(name, ui_font_48(), 0);
         lv_obj_set_style_margin_ver(name, 15, 0);
 
         lv_obj_t *version = lv_label_create(block);
         lv_label_set_text(version, "v0.1.0");
-        lv_obj_set_style_text_font(version, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(version, ui_font_24(), 0);
         lv_obj_set_style_margin_bottom(version, 25, 0);
 
         lv_hor_separator_create(block, 10);
-        info_row_create(block, LUCIDE_CODE, "Repository", kRepoUrl, [this](lv_event_t*) {
+        info_row_create(block, LUCIDE_CODE, S().repository, kRepoUrl, [this](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             auto card = lv_modal_open(root_);
 
@@ -125,7 +128,7 @@ void SettingsScreen::build() {
             lv_obj_set_style_pad_ver(url, 10, 0);
             lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
 
-            lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+            lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
                 lv_async_call([card]() {
                     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
                     lv_modal_close(card);
@@ -133,13 +136,16 @@ void SettingsScreen::build() {
             });
         });
         lv_hor_separator_create(block, 10);
-        info_row_create(block, LUCIDE_USER, kAuthorName, "Developer", [](lv_event_t*) {});
+        info_row_create(block, LUCIDE_USER, kAuthorName, S().developer, [](lv_event_t*) {});
     }
 
-    settings_button_create(contents_, LUCIDE_CLOCK, "Date & Time", [](lv_event_t*) {
+    settings_button_create(contents_, LUCIDE_CLOCK, S().date_time, [](lv_event_t*) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         screen_manager.push(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Back));
     });
-    settings_button_create(contents_, LUCIDE_LANGUAGES, "Languages", [](lv_event_t*) {});
-    settings_button_create(contents_, LUCIDE_SCALE, "Acknowledgements", [](lv_event_t*) {});
+    settings_button_create(contents_, LUCIDE_LANGUAGES, S().languages, [](lv_event_t*) {
+        epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+        screen_manager.push(std::make_shared<LanguageSelectScreen>(LanguageSelectScreen::Mode::Settings));
+    });
+    settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {});
 }

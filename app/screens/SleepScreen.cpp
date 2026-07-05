@@ -9,6 +9,8 @@
 #include "lv_image_adapter.hpp"
 #include "widgets.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -22,8 +24,8 @@ void SleepScreen::build() {
     lv_spacer_create(root_, 0, 0, 1);
 
     auto title = lv_label_create(root_);
-    lv_label_set_text(title, "Name Card Knot");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
+    lv_label_set_text(title, S().app_name);
+    lv_obj_set_style_text_font(title, ui_font_48(), 0);
 
     if (cardstore::mycard().available()) {
         preview_map_ = cardstore::mycard().map_image(cardstore::BLOB_PREVIEW);
@@ -44,11 +46,11 @@ void SleepScreen::build() {
 
     auto hint = lv_label_create(root_);
 #if defined(CONFIG_IDF_TARGET_ESP32)
-    lv_label_set_text(hint, "Hold the side button to wake");
+    lv_label_set_text(hint, S().hold_button_wake);
 #else
-    lv_label_set_text(hint, "Press the side button to wake");
+    lv_label_set_text(hint, S().press_button_wake);
 #endif
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(hint, ui_font_24(), 0);
 
     lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_fn(root_, LV_EVENT_CLICKED, [](lv_event_t*) {

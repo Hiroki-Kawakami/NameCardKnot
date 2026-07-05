@@ -16,6 +16,8 @@
 #include "ShareScreen.hpp"
 #include "ReceiveScreen.hpp"
 #include "SettingsScreen.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <cstdio>
 
 void HomeScreen::build() {
@@ -26,17 +28,17 @@ void HomeScreen::build() {
     date_label_ = lv_label_create(root_);
     lv_obj_add_flag(date_label_, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_align(date_label_, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_text_font(date_label_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(date_label_, ui_font_24(), 0);
     refreshDate();
 
     { // Title
         lv_obj_t *title = lv_label_create(root_);
-        lv_label_set_text(title, "Name Card Knot");
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
+        lv_label_set_text(title, S().app_name);
+        lv_obj_set_style_text_font(title, ui_font_48(), 0);
 
         lv_obj_t *version = lv_label_create(root_);
         lv_label_set_text(version, "v0.1.0");
-        lv_obj_set_style_text_font(version, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(version, ui_font_24(), 0);
 
         lv_obj_set_style_pad_top(title, 60, 0);
         lv_obj_set_style_pad_bottom(version, 40, 0);
@@ -67,18 +69,18 @@ void HomeScreen::build() {
 
             auto label = lv_label_create(button);
             lv_label_set_text(label, title);
-            lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+            lv_obj_set_style_text_font(label, ui_font_24(), 0);
         };
 
         auto row1 = lv_container_create(root_, LV_FLEX_FLOW_ROW);
         lv_obj_set_size(row1, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_ver(row1, 10, 0);
         lv_obj_set_flex_align(row1, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row1, R.icon.card_sd_80px, "Open from SD", [](lv_event_t*) {
+        button(row1, R.icon.card_sd_80px, S().open_from_sd, [](lv_event_t*) {
             screen_manager.push(std::make_shared<FileBrowserScreen>());
         });
         lv_ver_separator_create(row1);
-        button(row1, R.icon.images_80px, "Gallery", [](lv_event_t*) {
+        button(row1, R.icon.images_80px, S().gallery, [](lv_event_t*) {
             screen_manager.push(std::make_shared<GalleryScreen>());
         });
 
@@ -88,7 +90,7 @@ void HomeScreen::build() {
         lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_pad_ver(row2, 10, 0);
         lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        button(row2, R.icon.square_arrow_right_enter_80px, "Receive", [](lv_event_t*) {
+        button(row2, R.icon.square_arrow_right_enter_80px, S().receive, [](lv_event_t*) {
             std::shared_ptr<SharedCardData> shared = nullptr;
             if (auto card = NameCardData::load_cached()) {
                 auto s = card->share();
@@ -98,7 +100,7 @@ void HomeScreen::build() {
             screen_manager.push(std::make_shared<ReceiveScreen>(shared));
         });
         lv_ver_separator_create(row2);
-        button(row2, R.icon.cog_80px, "Settings", [](lv_event_t*) {
+        button(row2, R.icon.cog_80px, S().settings, [](lv_event_t*) {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             screen_manager.push(std::make_shared<SettingsScreen>());
         });
@@ -179,8 +181,8 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
     lv_obj_set_style_pad_row(container, 10, 0);
 
     auto title = lv_label_create(container);
-    lv_label_set_text(title, "My Card");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
+    lv_label_set_text(title, S().my_card);
+    lv_obj_set_style_text_font(title, ui_font_32(), 0);
     lv_obj_set_style_pad_top(title, 20, 0);
     lv_spacer_create(container, 0, 0, 1);
 
@@ -217,8 +219,8 @@ void HomeScreen::myCardButtonCreate(lv_obj_t *parent) {
     lv_label_set_text(share_icon, LUCIDE_SQUARE_ARROW_OUT_UP_RIGHT);
     lv_obj_set_style_text_font(share_icon, R.font.lucide_40, 0);
     auto share_label = lv_label_create(share_button);
-    lv_label_set_text(share_label, "Share");
-    lv_obj_set_style_text_font(share_label, &lv_font_montserrat_32, 0);
+    lv_label_set_text(share_label, S().share);
+    lv_obj_set_style_text_font(share_label, ui_font_32(), 0);
 
     lv_ver_separator_create(row);
 
@@ -246,8 +248,8 @@ void HomeScreen::noCardButtonCreate(lv_obj_t *parent) {
     lv_obj_add_event_fn(button, LV_EVENT_CLICKED, [this](lv_event_t*) { importMyCard(); });
 
     auto title = lv_label_create(button);
-    lv_label_set_text(title, "No My Card");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
+    lv_label_set_text(title, S().no_my_card);
+    lv_obj_set_style_text_font(title, ui_font_32(), 0);
 
     auto row = lv_container_create(button, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(row, 10, 0);
@@ -258,6 +260,6 @@ void HomeScreen::noCardButtonCreate(lv_obj_t *parent) {
     lv_obj_center(edit_icon);
 
     auto edit_label = lv_label_create(row);
-    lv_label_set_text(edit_label, "Import from SD Card");
-    lv_obj_set_style_text_font(edit_label, &lv_font_montserrat_24, 0);
+    lv_label_set_text(edit_label, S().import_from_sd);
+    lv_obj_set_style_text_font(edit_label, ui_font_24(), 0);
 }

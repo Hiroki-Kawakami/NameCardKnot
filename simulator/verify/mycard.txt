@@ -2,6 +2,11 @@
 # confirm the Home screen reflects it (preview + name raster). Start from no
 # saved card: rm simulator/mycard.img before running for the empty path.
 # tap: panel_x = logical_y, panel_y = 540 - logical_x.
+#
+# NVS starts empty each headless run, so boot always lands on the language
+# picker first; tap 453 270 = "English".
+settle
+tap 453 270                                      # boot language gate: English
 settle
 tap 390 270                                       # "No My Card" / My Card -> import browser
 settle

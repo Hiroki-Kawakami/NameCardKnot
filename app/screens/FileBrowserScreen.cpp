@@ -11,6 +11,8 @@
 #include "ImportJob.hpp"
 #include "NameCardKnot.hpp"
 #include "resources.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <algorithm>
 #include <vector>
 #include <cstdio>
@@ -43,14 +45,16 @@ void FileBrowserScreen::load() {
     offset_ = 0;
 
     if (!mount_sd_card()) {
-        error_ = "SD card not found.";
+        error_ = S().sd_card_not_found;
         return;
     }
 
     auto path = path_stack_.back();
     DIR *dir = opendir(path.c_str());
     if (!dir) {
-        error_ = "Cannot open " + path;
+        char buf[512];
+        snprintf(buf, sizeof buf, S().cannot_open_fmt, path.c_str());
+        error_ = buf;
         // The card may have been pulled: unmount so the next Refresh retries
         // the mount instead of reusing a dead filesystem.
         if (path_stack_.empty() == 1) unmount_sd_card();
@@ -96,8 +100,8 @@ void FileBrowserScreen::rebuild() {
         auto label = lv_label_create(contents_);
         lv_obj_set_width(label, LV_PCT(100));
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_text(label, "No Items");
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_label_set_text(label, S().no_items);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
         lv_obj_set_style_margin_top(label, 40, 0);
         return;
     }
@@ -137,12 +141,12 @@ void FileBrowserScreen::rebuild() {
         auto icon_label = lv_label_create(row);
         lv_obj_set_width(icon_label, 48);
         lv_label_set_text(icon_label, e.dir ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE);
-        lv_obj_set_style_text_font(icon_label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(icon_label, ui_font_24(), 0);
         lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, 0);
 
         auto label = lv_label_create(row);
         lv_label_set_text(label, e.name.c_str());
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(label, ui_font_24(), 0);
     }
 
     auto status = lv_container_create(contents_);
@@ -152,10 +156,10 @@ void FileBrowserScreen::rebuild() {
     lv_obj_set_style_border_color(status, lv_color_black(), 0);
 
     auto label = lv_label_create(status);
-    auto status_str = std::to_string(entries_.size()) + " Items ";
-    status_str += "(" + std::to_string(page + 1) + "/" + std::to_string(page_num) + ")";
-    lv_label_set_text(label, status_str.c_str());
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    char status_buf[64];
+    snprintf(status_buf, sizeof status_buf, S().items_page_fmt, (int)entries_.size(), page + 1, page_num);
+    lv_label_set_text(label, status_buf);
+    lv_obj_set_style_text_font(label, ui_font_24(), 0);
     lv_obj_center(label);
 
     if (has_prev_page) {
@@ -266,7 +270,9 @@ void FileBrowserScreen::open(int index) {
     if (ends_with(e.name, ".snc.pdf")) {
         auto data = SharedCardData::open(path);
         if (!data || !data->valid()) {
-            openError("Cannot open " + e.name);
+            char buf[512];
+            snprintf(buf, sizeof buf, S().cannot_open_fmt, e.name.c_str());
+            openError(buf);
             return;
         }
         epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
@@ -280,9 +286,9 @@ void FileBrowserScreen::open(int index) {
 void FileBrowserScreen::openError(const std::string &msg) {
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     auto card = lv_modal_open(root_);
-    lv_modal_title_create(card, "Error");
+    lv_modal_title_create(card, S().error);
     lv_modal_message_create(card, msg.c_str());
-    lv_modal_button_create(card, "Close", LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+    lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
         lv_async_call([card] {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
             lv_modal_close(card);
@@ -293,7 +299,7 @@ void FileBrowserScreen::openError(const std::string &msg) {
 void FileBrowserScreen::openProgress() {
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
     card_ = lv_modal_open(root_);
-    lv_modal_title_create(card_, "Loading...");
+    lv_modal_title_create(card_, S().loading);
     lv_modal_message_create(card_, loader_->label().c_str());
 
     bar_ = lv_bar_create(card_);
@@ -302,12 +308,12 @@ void FileBrowserScreen::openProgress() {
     lv_bar_set_max_value(bar_, 100);
     lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
 
-    lv_modal_button_create(card_, "Cancel", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *e) {
+    lv_modal_button_create(card_, S().cancel, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *e) {
         if (loader_) loader_->cancel();
         cancelling_ = true;  // keep the modal up until the worker acknowledges
         auto button = lv_event_get_target_obj(e);
         lv_obj_add_state(button, LV_STATE_DISABLED);
-        lv_label_set_text(lv_obj_get_child(button, 0), "Cancelling...");
+        lv_label_set_text(lv_obj_get_child(button, 0), S().cancelling);
     });
 
     cancelling_ = false;

@@ -9,6 +9,7 @@
 #include "NameFont.hpp"
 #include "image_processor.hpp"
 #include "Nvs.hpp"
+#include "Strings.hpp"
 #include "bsp.h"
 #include <atomic>
 #include <memory>
@@ -50,11 +51,11 @@ protected:
     virtual void onHotKnotDone() {}             // sent (master) / received (slave)
     virtual void onHotKnotFailed(esp_err_t err);
     virtual void stashReceived(const uint8_t *data, size_t len) {}  // on the reader task
-    virtual const char *transferTitle() const { return "Transfer"; }
+    virtual const char *transferTitle() const { return "Transfer"; }  // unreachable: bootMsgId() is pure virtual
 
     void showProgressModal(const char *message);
     void setProgressMessage(const char *message);
-    void addModalCloseButton(const char *text = "Close");
+    void addModalCloseButton(const char *text = nullptr);  // nullptr -> S().close
 
     // Session UI shown from onHotKnotPaired onward (touch is dead past this
     // point, so it replaces the whole tree rather than layering a modal).

@@ -9,6 +9,8 @@
 #include "screen_manager.hpp"
 #include "Nvs.hpp"
 #include "Power.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 
 #include "esp_log.h"
 #include <cstring>
@@ -43,14 +45,14 @@ static std::string sanitize_filename(const std::string &name) {
 static std::string append_err(const std::string &text, esp_err_t err) {
     if (err == ESP_OK) return text;
     char buf[160];
-    snprintf(buf, sizeof buf, "%s (%s)", text.c_str(), esp_err_to_name(err));
+    snprintf(buf, sizeof buf, S().error_detail_fmt, text.c_str(), esp_err_to_name(err));
     return buf;
 }
 
 // Integer math: LVGL's builtin lv_snprintf has %f compiled out (LV_USE_FLOAT=0).
 static void set_kb_progress(lv_obj_t *label, uint32_t cur, uint32_t total) {
     uint32_t c = cur * 10 / 1024, t = total * 10 / 1024;
-    lv_label_set_text_fmt(label, "%u.%u / %u.%u KB",
+    lv_label_set_text_fmt(label, S().transfer_progress_fmt,
                           (unsigned)(c / 10), (unsigned)(c % 10),
                           (unsigned)(t / 10), (unsigned)(t % 10));
 }
@@ -74,8 +76,8 @@ void TransferScreen::build() {
     lv_obj_set_style_pad_row(session, 24, 0);
 
     title_label_ = lv_label_create(session);
-    lv_label_set_text(title_label_, "Handshaking");
-    lv_obj_set_style_text_font(title_label_, &lv_font_montserrat_48, 0);
+    lv_label_set_text(title_label_, S().handshaking);
+    lv_obj_set_style_text_font(title_label_, ui_font_48(), 0);
 
     peer_name_label_ = lv_label_create(session);
     lv_obj_set_width(peer_name_label_, LV_PCT(100));
@@ -91,7 +93,7 @@ void TransferScreen::build() {
     lv_bar_set_value(bar_, 10, LV_ANIM_OFF);
 
     progress_label_ = lv_label_create(session);
-    lv_obj_set_style_text_font(progress_label_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(progress_label_, ui_font_24(), 0);
     lv_label_set_text(progress_label_, "");
 
     mount_sd_card();  // the receive direction writes the incoming card here
@@ -303,9 +305,9 @@ void TransferScreen::poll() {
         epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
         bool will_send = will_send_.load(std::memory_order_relaxed);
         bool will_recv = will_recv_.load(std::memory_order_relaxed);
-        if (will_send && will_recv) lv_label_set_text(title_label_, "Exchanging Card");
-        else if (will_send) lv_label_set_text(title_label_, "Sending Card");
-        else if (will_recv) lv_label_set_text(title_label_, "Receiving Card");
+        if (will_send && will_recv) lv_label_set_text(title_label_, S().exchanging_card);
+        else if (will_send) lv_label_set_text(title_label_, S().sending_card);
+        else if (will_recv) lv_label_set_text(title_label_, S().receiving_card);
         if (peer_name_[0]) {
             lv_label_set_text(peer_name_label_, peer_name_);
             lv_obj_remove_flag(peer_name_label_, LV_OBJ_FLAG_HIDDEN);
@@ -342,7 +344,7 @@ void TransferScreen::poll() {
             done_marked_ = true;
             done_tick_ = lv_tick_get();
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
-            lv_label_set_text(title_label_, "Finalizing");
+            lv_label_set_text(title_label_, S().finalizing);
             lv_bar_set_value(bar_, 100, LV_ANIM_OFF);
             if (total > 0) set_kb_progress(progress_label_, total, total);
         }
@@ -412,17 +414,17 @@ void TransferScreen::terminate(bool ok) {
     std::string msg;
     if (ok) {
         id = bootmsg::Id::TransferComplete;
-        if (will_recv && recv_finalized_ && recv_ok_) msg = "Received a new card.";
-        else if (will_send) msg = "Your card has been sent.";
-        else msg = "No cards were exchanged.";
+        if (will_recv && recv_finalized_ && recv_ok_) msg = S().received_new_card;
+        else if (will_send) msg = S().card_sent;
+        else msg = S().no_cards_exchanged;
     } else {
         id = (will_send && will_recv) ? bootmsg::Id::TransferFailed
            : will_send                ? bootmsg::Id::ShareFailed
            : will_recv                ? bootmsg::Id::ReceiveFailed
                                        : bootmsg::Id::TransferFailed;
-        if (!connected_.load(std::memory_order_acquire)) msg = "Could not connect to the other device.";
-        else if (recv_finalized_ && !recv_ok_) msg = "Failed to save the received card.";
-        else msg = "The connection was lost before the transfer completed.";
+        if (!connected_.load(std::memory_order_acquire)) msg = S().could_not_connect;
+        else if (recv_finalized_ && !recv_ok_) msg = S().failed_save_received;
+        else msg = S().connection_lost;
         msg = append_err(msg, (esp_err_t)err_.load(std::memory_order_relaxed));
     }
 

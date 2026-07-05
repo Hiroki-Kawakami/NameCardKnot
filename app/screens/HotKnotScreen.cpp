@@ -8,6 +8,8 @@
 #include "lv_image_adapter.hpp"
 #include "NameCardKnot.hpp"
 #include "BootMessageScreen.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -21,11 +23,9 @@ static constexpr uint32_t kHotKnotSendTimeoutMs = 5000;
 static constexpr uint32_t kSlaveReceiveTimeoutMs = 10000;
 
 static std::string hotknot_error_message(esp_err_t err) {
-    const char *text = err == ESP_ERR_TIMEOUT
-        ? "The devices were separated before the transfer completed."
-        : "Card exchange failed.";
+    const char *text = err == ESP_ERR_TIMEOUT ? S().devices_separated : S().card_exchange_failed;
     char buf[160];
-    snprintf(buf, sizeof buf, "%s (%s)", text, esp_err_to_name(err));
+    snprintf(buf, sizeof buf, S().error_detail_fmt, text, esp_err_to_name(err));
     return buf;
 }
 
@@ -63,11 +63,11 @@ void HotKnotScreen::createHotKnotStartMessage(lv_obj_t *parent) {
     lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
 
     auto msg = lv_label_create(hotknot_start_msg_);
-    lv_label_set_text(msg, "Hold this screen against the other device's screen to start sharing.");
+    lv_label_set_text(msg, S().hold_screen_hint);
     lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(msg, LV_PCT(100));
     lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(msg, ui_font_24(), 0);
 }
 
 lv_obj_t *HotKnotScreen::createShareImages(lv_obj_t *parent) {
@@ -288,19 +288,19 @@ void HotKnotScreen::onHotKnotPaired() {
     lv_obj_set_style_pad_row(session, 20, 0);
 
     auto title = lv_label_create(session);
-    lv_label_set_text(title, "HotKnot Approach");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_48, 0);
+    lv_label_set_text(title, S().hotknot_approach);
+    lv_obj_set_style_text_font(title, ui_font_48(), 0);
 
     auto icon = lv_label_create(session);
     lv_label_set_text(icon, LUCIDE_SMARTPHONE_NFC);
     lv_obj_set_style_text_font(icon, R.font.lucide_40, 0);
 
     session_msg_ = lv_label_create(session);
-    lv_label_set_text(session_msg_, "Keep the devices held together until this finishes.");
+    lv_label_set_text(session_msg_, S().keep_held_hint);
     lv_label_set_long_mode(session_msg_, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(session_msg_, LV_PCT(100));
     lv_obj_set_style_text_align(session_msg_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(session_msg_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(session_msg_, ui_font_24(), 0);
 
     paired_ = true;
 }
@@ -316,7 +316,7 @@ void HotKnotScreen::onHotKnotFailed(esp_err_t err) {
     if (!paired_) {
         endHotKnot();
         if (!modal_) showProgressModal("");
-        setProgressMessage("Connection failed. Please try again.");
+        setProgressMessage(S().connection_failed_retry);
         addModalCloseButton();
         return;
     }
@@ -357,7 +357,7 @@ void HotKnotScreen::setProgressMessage(const char *message) {
 void HotKnotScreen::addModalCloseButton(const char *text) {
     if (!modal_) return;
     epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
-    lv_modal_button_create(modal_, text, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *) {
+    lv_modal_button_create(modal_, text ? text : S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t *) {
         lv_async_call([this]() {
             epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT);
             back();

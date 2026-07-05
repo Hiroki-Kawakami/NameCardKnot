@@ -10,10 +10,12 @@
 #include "screen_manager.hpp"
 #include "resources.h"
 #include "dokan.h"
+#include "Strings.hpp"
+#include "UiFont.hpp"
 #include <cstring>
 
 void ReceiveScreen::build() {
-    createNavigation("Receive");
+    createNavigation(S().receive);
     lv_obj_set_style_border_width(navigation_, 0, 0);
     lv_obj_set_flex_align(contents_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(contents_, 20, 0);
@@ -21,7 +23,7 @@ void ReceiveScreen::build() {
     lv_obj_set_style_pad_bottom(contents_, 20, 0);
 
     if (!mount_sd_card()) {  // received cards are written to the SD card
-        showProgressModal("An SD card is required to receive cards.");
+        showProgressModal(S().sd_required_to_receive_cards);
         addModalCloseButton();
         return;
     }
@@ -40,7 +42,7 @@ void ReceiveScreen::stashReceived(const uint8_t *data, size_t len) {
 
 void ReceiveScreen::onHotKnotDone() {
     if (!dokan_descriptor_valid(descriptor_, DOKAN_APP_ID)) {
-        failAndReboot("Received an invalid descriptor.");
+        failAndReboot(S().invalid_descriptor);
         return;
     }
     endHotKnot();
@@ -83,7 +85,7 @@ void ReceiveScreen::loadShareCardData() {
 
             lv_obj_clean(container);
             auto checkbox = lv_label_create(container);
-            lv_obj_set_style_text_font(checkbox, &lv_font_montserrat_24, 0);
+            lv_obj_set_style_text_font(checkbox, ui_font_24(), 0);
             lv_obj_set_size(checkbox, 24, 24);
             lv_obj_set_style_border_width(checkbox, 1, 0);
             if (return_my_data_) {
@@ -95,8 +97,8 @@ void ReceiveScreen::loadShareCardData() {
             }
 
             auto label = lv_label_create(container);
-            lv_label_set_text(label, "Also send my card in return");
-            lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+            lv_label_set_text(label, S().also_send_return);
+            lv_obj_set_style_text_font(label, ui_font_24(), 0);
         };
         createCheckbox(nullptr);
         lv_obj_add_event_fn(button, LV_EVENT_CLICKED, createCheckbox);

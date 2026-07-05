@@ -9,6 +9,7 @@
 #include "SharedCardData.hpp"
 #include "SharedCardScreen.hpp"
 #include "Power.hpp"
+#include "Strings.hpp"
 #include "bsp.h"
 
 BootMessageScreen::BootMessageScreen(bootmsg::Id id, std::string param, Mode mode,
@@ -18,16 +19,16 @@ BootMessageScreen::BootMessageScreen(bootmsg::Id id, std::string param, Mode mod
 void BootMessageScreen::build() {
     modal_ = lv_modal_open(root_);
 
-    const char *title = "Notice";
-    if (id_ == bootmsg::Id::ShareFailed) title = "Share Failed";
-    else if (id_ == bootmsg::Id::ReceiveFailed) title = "Receive Failed";
-    else if (id_ == bootmsg::Id::TransferFailed) title = "Transfer Failed";
-    else if (id_ == bootmsg::Id::TransferComplete) title = "Transfer Complete";
+    const char *title = S().notice;
+    if (id_ == bootmsg::Id::ShareFailed) title = S().share_failed;
+    else if (id_ == bootmsg::Id::ReceiveFailed) title = S().receive_failed;
+    else if (id_ == bootmsg::Id::TransferFailed) title = S().transfer_failed;
+    else if (id_ == bootmsg::Id::TransferComplete) title = S().transfer_complete;
     lv_modal_title_create(modal_, title);
     lv_modal_message_create(modal_, param_.c_str());
 
     if (mode_ == Mode::ResetFailed) {
-        lv_modal_message_create(modal_, "Press the reset button on the back of the device to restart.");
+        lv_modal_message_create(modal_, S().press_reset_hint);
         return;
     }
 
@@ -40,7 +41,7 @@ void BootMessageScreen::build() {
 
     if (id_ == bootmsg::Id::TransferComplete) received_path_ = lastcard::take_received();
     if (!received_path_.empty()) {
-        lv_modal_button_create(modal_, "Open Card", LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
+        lv_modal_button_create(modal_, S().open_card, LV_MODAL_BUTTON_TYPE_PRIMARY, [this](lv_event_t*) {
             lv_async_call([this]() {
                 bsp_display_clear();
                 mount_sd_card();
@@ -51,9 +52,9 @@ void BootMessageScreen::build() {
                     on_continue_();
             });
         });
-        lv_modal_button_create(modal_, "Back", LV_MODAL_BUTTON_TYPE_PRIMARY, back);
+        lv_modal_button_create(modal_, S().back, LV_MODAL_BUTTON_TYPE_PRIMARY, back);
     } else {
-        lv_modal_button_create(modal_, id_ == bootmsg::Id::TransferComplete ? "Back" : "OK",
+        lv_modal_button_create(modal_, id_ == bootmsg::Id::TransferComplete ? S().back : S().ok,
                                 LV_MODAL_BUTTON_TYPE_PRIMARY, back);
     }
 }

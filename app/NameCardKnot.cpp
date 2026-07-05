@@ -22,9 +22,13 @@
 #include "SharedCardData.hpp"
 #include "DateTimeScreen.hpp"
 #include "BootMessageScreen.hpp"
+#include "LanguageSelectScreen.hpp"
 #include "CardStore.hpp"
 #include "Nvs.hpp"
 #include "Power.hpp"
+#include "Strings.hpp"
+#include "UiFont.hpp"
+#include "widgets.hpp"
 
 static const char *TAG = "NameCardKnot";
 
@@ -133,6 +137,12 @@ static void lvgl_init() {
     });
     lv_display_set_default(s_disp);
 
+    // This board's lv_conf enables LV_USE_THEME_MONO (not the default theme):
+    // re-init with the same dark_bg lv_display_create() used, only the font differs.
+    ui_font_init();
+    lv_theme_mono_init(s_disp, false, ui_font_24());
+    lv_widgets_set_fonts(ui_font_32(), ui_font_24());
+
     s_touch.lock = xSemaphoreCreateMutex();
     bsp_touch_set_event_cb(touch_event_cb, nullptr);
 
@@ -234,6 +244,52 @@ static void load_resumed_or_home() {
     else      screen_manager.load(std::make_shared<HomeScreen>());
 }
 
+// The rest of boot, past the language gate. power::start() lives only here, so
+// it always runs exactly once regardless of which gate branch got us here.
+static void boot_continue() {
+    auto bm = bootmsg::take();
+    if (bm.id != bootmsg::Id::None) {
+        auto screen = std::make_shared<BootMessageScreen>(
+            bm.id, bm.param, BootMessageScreen::Mode::Boot, load_resumed_or_home);
+        screen_manager.load(screen);
+        lv_refr_now(NULL);
+        screen->refreshModal();
+        power::start();
+        return;
+    }
+
+    std::shared_ptr<SharedCardData> received;
+    std::string rpath = lastcard::take_received();
+    if (!rpath.empty() && mount_sd_card()) {
+        auto data = SharedCardData::open(rpath);
+        if (data && data->valid()) received = data;
+    }
+
+    if (received) {
+        bsp_display_clear();
+        screen_manager.load(std::make_shared<SharedCardScreen>(received, SharedCardScreen::Nav::Received));
+    } else {
+        auto card = make_resumed_card_screen();
+        if (card) {
+            card->set_clean_resume(lastcard::clean_resume());
+            screen_manager.load(card);
+            if (lastcard::clean_resume()) {
+                lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
+                card->refreshMenu();
+            }
+        } else {
+            bsp_display_clear();
+            bool valid = false;
+            if (bsp_rtc_time_is_valid(&valid) == ESP_OK && !valid) {
+                screen_manager.load(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Boot));
+            } else {
+                screen_manager.load(std::make_shared<HomeScreen>());
+            }
+        }
+    }
+    power::start();
+}
+
 void app_entry() {
     bsp_config_t bsp_config = {};
     bsp_config.epd.task_priority = 5;
@@ -248,47 +304,15 @@ void app_entry() {
     lvgl_init();
 
     epd_set_default_refresh_mode(BSP_EPD_MODE_FAST);   // ongoing updates: diff
-    lv_async_call([](void*) {
-        auto bm = bootmsg::take();
-        if (bm.id != bootmsg::Id::None) {
-            auto screen = std::make_shared<BootMessageScreen>(
-                bm.id, bm.param, BootMessageScreen::Mode::Boot, load_resumed_or_home);
-            screen_manager.load(screen);
-            lv_refr_now(NULL);
-            screen->refreshModal();
-            power::start();
+    lv_async_call([]() {
+        std::string lang = settings::language();
+        if (!lang.empty()) {
+            strings::set(lang == "ja" ? strings::Lang::Ja : strings::Lang::En);
+            boot_continue();
             return;
         }
-
-        std::shared_ptr<SharedCardData> received;
-        std::string rpath = lastcard::take_received();
-        if (!rpath.empty() && mount_sd_card()) {
-            auto data = SharedCardData::open(rpath);
-            if (data && data->valid()) received = data;
-        }
-
-        if (received) {
-            bsp_display_clear();
-            screen_manager.load(std::make_shared<SharedCardScreen>(received, SharedCardScreen::Nav::Received));
-        } else {
-            auto card = make_resumed_card_screen();
-            if (card) {
-                card->set_clean_resume(lastcard::clean_resume());
-                screen_manager.load(card);
-                if (lastcard::clean_resume()) {
-                    lv_refr_now(NULL);   // paint-nothing first flush, then just the menu
-                    card->refreshMenu();
-                }
-            } else {
-                bsp_display_clear();
-                bool valid = false;
-                if (bsp_rtc_time_is_valid(&valid) == ESP_OK && !valid) {
-                    screen_manager.load(std::make_shared<DateTimeScreen>(DateTimeScreen::Nav::Boot));
-                } else {
-                    screen_manager.load(std::make_shared<HomeScreen>());
-                }
-            }
-        }
-        power::start();
-    }, nullptr);
+        bsp_display_clear();
+        screen_manager.load(std::make_shared<LanguageSelectScreen>(
+            LanguageSelectScreen::Mode::Boot, boot_continue));
+    });
 }
