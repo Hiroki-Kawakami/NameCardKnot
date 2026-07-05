@@ -13,11 +13,15 @@
 #include "Strings.hpp"
 #include "UiFont.hpp"
 #include "resources.h"
+#include <cstring>
 
 // ---- Editable about-page content ------------------------------------------
 namespace {
 constexpr const char kAuthorName[] = "Hiroki Kawakami";
 constexpr const char kRepoUrl[] = "https://github.com/Hiroki-Kawakami/NameCardKnot";
+constexpr const char kAuthorGitHub[] = "https://github.com/Hiroki-Kawakami";
+constexpr const char kAuthorURL[] = "https://www.ideal-reality.com";
+constexpr const char kAuthorSNS[] = "https://x.com/hiroki_cockatoo";
 }  // namespace
 
 static lv_obj_t *info_row_create(lv_obj_t *parent, const char *icon, const char *title, const char *value,
@@ -138,7 +142,62 @@ void SettingsScreen::build() {
             });
         });
         lv_hor_separator_create(block, 10);
-        info_row_create(block, LUCIDE_USER, kAuthorName, S().developer, [](lv_event_t*) {});
+        info_row_create(block, LUCIDE_USER, kAuthorName, S().developer, [this](lv_event_t*) {
+            epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+            auto card = lv_modal_open(root_);
+
+            lv_obj_t *selector = lv_container_create(card, LV_FLEX_FLOW_ROW);
+            lv_obj_set_width(selector, LV_PCT(100));
+            lv_obj_set_flex_align(selector, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+            lv_obj_t *qr = lv_qrcode_create(card);
+            lv_obj_set_width(qr, LV_PCT(100));
+            lv_qrcode_set_size(qr, 300);
+            lv_qrcode_set_dark_color(qr, lv_color_black());
+            lv_qrcode_set_light_color(qr, lv_color_white());
+
+            lv_obj_t *url = lv_label_create(card);
+            lv_obj_set_size(url, LV_PCT(100), 80);
+            lv_obj_set_style_pad_ver(url, 10, 0);
+            lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
+
+            auto show = [qr, url](const char *link) {
+                lv_qrcode_update(qr, link, strlen(link));
+                lv_label_set_text(url, link);
+            };
+
+            static const struct { const char *label; const char *link; } kLinks[] = {
+                {"GitHub", kAuthorGitHub},
+                {"Website", kAuthorURL},
+                {"SNS", kAuthorSNS},
+            };
+            for (const auto &l : kLinks) {
+                lv_obj_t *btn = lv_button_create(selector);
+                lv_obj_remove_style_all(btn);
+                lv_obj_set_flex_grow(btn, 1);
+                lv_obj_set_style_pad_all(btn, 10, 0);
+                lv_obj_set_style_border_color(btn, lv_color_white(), 0);
+                lv_obj_set_style_border_color(btn, lv_color_black(), LV_STATE_PRESSED);
+                lv_obj_set_style_border_width(btn, 1, 0);
+                lv_obj_t *text = lv_label_create(btn);
+                lv_label_set_text(text, l.label);
+                lv_obj_set_style_text_font(text, ui_font_24(), 0);
+                lv_obj_center(text);
+                const char *link = l.link;
+                lv_obj_add_event_fn(btn, LV_EVENT_CLICKED, [show, link](lv_event_t*) {
+                    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+                    show(link);
+                });
+            }
+            show(kLinks[0].link);
+
+            lv_modal_button_create(card, S().close, LV_MODAL_BUTTON_TYPE_PRIMARY, [card](lv_event_t*) {
+                lv_async_call([card]() {
+                    epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
+                    lv_modal_close(card);
+                });
+            });
+        });
     }
 
     settings_button_create(contents_, LUCIDE_CLOCK, S().date_time, [](lv_event_t*) {
