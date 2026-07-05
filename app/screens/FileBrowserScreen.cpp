@@ -145,6 +145,9 @@ void FileBrowserScreen::rebuild() {
         lv_obj_set_style_text_align(icon_label, LV_TEXT_ALIGN_CENTER, 0);
 
         auto label = lv_label_create(row);
+        lv_obj_set_flex_grow(label, 1);
+        lv_obj_set_height(label, lv_font_get_line_height(ui_font_24()));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
         lv_label_set_text(label, e.name.c_str());
         lv_obj_set_style_text_font(label, ui_font_24(), 0);
     }
