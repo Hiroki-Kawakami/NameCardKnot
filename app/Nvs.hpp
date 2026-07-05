@@ -81,4 +81,7 @@ void set_receive_send_return(bool value);
 std::string language();               // "en"/"ja", "" = unset (first-boot picker)
 void set_language(const std::string &lang);
 
+bool display_flip();                   // true = rotate the screen 180 (read once at boot)
+void set_display_flip(bool value);
+
 }  // namespace settings

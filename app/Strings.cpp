@@ -40,6 +40,7 @@ Strings make_en() {
     s.developer = "Developer";
     s.date_time = "Date & Time";
     s.languages = "Languages";
+    s.screen_orientation = "Flip Screen";
     s.acknowledgements = "Acknowledgements";
 
     s.no_image = "No image";
@@ -124,6 +125,7 @@ Strings make_ja() {
     s.developer = "Developer";
     s.date_time = "日時";
     s.languages = "言語";
+    s.screen_orientation = "画面を反転";
     s.acknowledgements = "Acknowledgements";
 
     s.no_image = "画像なし";

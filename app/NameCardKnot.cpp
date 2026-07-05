@@ -61,6 +61,7 @@ static bool s_dirty_valid;
 static int s_dx1, s_dy1, s_dx2, s_dy2;
 static bsp_epd_mode_t s_default_mode, s_next_mode;
 static bool s_next_valid;   // lets next = NONE mean "this flush refreshes nothing"
+static bsp_rotation_t s_bsp_rotation = BSP_ROTATION_90;   // paired with the display rotation below
 
 static void dirty_extend(int x1, int y1, int x2, int y2) {
     if (!s_dirty_valid) {
@@ -116,12 +117,14 @@ static void lvgl_init() {
     s_disp = lv_display_create(size.width, size.height);
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_L8);
     lv_display_set_buffers(s_disp, s_buf, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    lv_display_set_rotation(s_disp, LV_DISPLAY_ROTATION_90);
+    s_bsp_rotation = settings::display_flip() ? BSP_ROTATION_270 : BSP_ROTATION_90;
+    lv_display_set_rotation(s_disp, settings::display_flip() ? LV_DISPLAY_ROTATION_270
+                                                             : LV_DISPLAY_ROTATION_90);
     lv_display_set_flush_cb(s_disp, [](lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
         lv_area_t rot = *area;
         lv_display_rotate_area(disp, &rot);   // logical area -> physical panel coords
         bsp_rect_t rect = { { rot.x1, rot.y1 }, { rot.x2 - rot.x1 + 1, rot.y2 - rot.y1 + 1 } };
-        bsp_display_draw_bitmap(rect, px_map, BSP_ROTATION_90);
+        bsp_display_draw_bitmap(rect, px_map, s_bsp_rotation);
         dirty_extend(rot.x1, rot.y1, rot.x2, rot.y2);
 
         if (lv_display_flush_is_last(disp)) {

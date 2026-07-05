@@ -265,4 +265,7 @@ void set_receive_send_return(bool v)   { set_bool("recv_ret", v); }
 std::string language()                          { return get_str("lang", ""); }
 void set_language(const std::string &lang)      { set_str("lang", lang); }
 
+bool display_flip()                    { return get_bool("disp_flip", false); }
+void set_display_flip(bool v)          { set_bool("disp_flip", v); }
+
 }  // namespace settings

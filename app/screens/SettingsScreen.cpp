@@ -8,6 +8,7 @@
 #include "GrayscaleTestScreen.hpp"
 #include "LanguageSelectScreen.hpp"
 #include "NameCardKnot.hpp"
+#include "Nvs.hpp"
 #include "Strings.hpp"
 #include "UiFont.hpp"
 #include "resources.h"
@@ -146,6 +147,10 @@ void SettingsScreen::build() {
     settings_button_create(contents_, LUCIDE_LANGUAGES, S().languages, [](lv_event_t*) {
         epd_set_next_refresh_mode(BSP_EPD_MODE_TEXT_ALL);
         screen_manager.push(std::make_shared<LanguageSelectScreen>(LanguageSelectScreen::Mode::Settings));
+    });
+    settings_button_create(contents_, LUCIDE_FLIP_VERTICAL, S().screen_orientation, [](lv_event_t*) {
+        settings::set_display_flip(!settings::display_flip());
+        bsp_restart();
     });
     settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {});
 }

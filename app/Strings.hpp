@@ -43,6 +43,7 @@ struct Strings {
     const char *developer;
     const char *date_time;
     const char *languages;
+    const char *screen_orientation;
     const char *acknowledgements;
 
     // NameCard
