@@ -172,6 +172,7 @@ static void lvgl_init() {
     // EPD: draws only update GRAM until a refresh
     bsp_display_set_epd_mode(BSP_EPD_MODE_NONE);
 
+    lv_refr_now(s_disp);
     lv_unlock();
 }
 
