@@ -74,12 +74,17 @@ static void go_to_sleep() {
                 lv_refr_now(NULL);
             }
         } else if (s_card) {
-            // A screen pushed from the card: pop back to it. Transitions don't
-            // render by themselves, so only the final card state is painted — with
-            // QUALITY (the card's sleeping onAppear), so unchanged pixels diff-skip.
+            // A screen pushed from the card: pop back to it, close any open
+            // menu/modal, and repaint so it never sleeps showing the overlay. With
+            // no overlay only the final card state is painted — QUALITY (the card's
+            // sleeping onAppear) diff-skips unchanged pixels.
             while (screen_manager.current_screen() &&
                    screen_manager.current_screen() != s_card) {
                 screen_manager.pop();
+            }
+            if (s_card->closeOverlays()) {
+                s_card->clearDisplay();
+                epd_set_next_refresh_mode(BSP_EPD_MODE_QUALITY_ALL);
             }
             lv_refr_now(NULL);
         } else {
