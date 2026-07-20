@@ -12,11 +12,10 @@
         ]
       },
       "locked": {
-        "lastModified": 1783013521,
-        "narHash": "sha256-KX+jqGueeIezqbBSZ6yKLc27VTwe71LUhw8SC6gPDX0=",
-        "ref": "refs/heads/main",
-        "rev": "94744699c13fdd66d86f032a470d93cc01b9e431",
-        "revCount": 77,
+        "lastModified": 1784466541,
+        "narHash": "sha256-zG+QHq1JKjIYkfCr85f66nWqN4aIOy9T9YqLog7aZLY=",
+        "rev": "c6bbfbaffa8ef4b25abeb4be8ce5d79651753556",
+        "revCount": 137,
         "type": "git",
         "url": "file:./esp-devkit"
       },

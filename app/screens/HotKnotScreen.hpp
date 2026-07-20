@@ -50,7 +50,7 @@ protected:
     virtual void onHotKnotReady() {}            // ready to send (master)
     virtual void onHotKnotDone() {}             // sent (master) / received (slave)
     virtual void onHotKnotFailed(esp_err_t err);
-    virtual void stashReceived(const uint8_t *data, size_t len) {}  // on the reader task
+    virtual void stashReceived(const uint8_t *data, size_t len) {}  // on the dispatch task
     virtual const char *transferTitle() const { return "Transfer"; }  // unreachable: bootMsgId() is pure virtual
 
     void showProgressModal(const char *message);
@@ -95,7 +95,7 @@ private:
     std::atomic<bool> worker_running_{false};
     bool worker_started_ = false;
 
-    // hotKnotEvent (reader task) and sendTask publish hk_state_ with release;
+    // hotKnotEvent (dispatch task) and sendTask publish hk_state_ with release;
     // pollHotKnot (LVGL thread) replays the transitions with acquire.
     enum class HkState : uint8_t { Idle, Approaching, Paired, Ready, Done, Failed };
     static void hotKnotEvent(const bsp_hotknot_event_t *ev, void *arg);

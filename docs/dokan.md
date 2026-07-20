@@ -479,10 +479,12 @@ components/dokan/
   CMakeLists.txt
 ```
 
-- **device**: `../components` は EXTRA_COMPONENT_DIRS のコンテナなので**自動検出**（編集不要）。
+- **device**: `devkit_idf_init(... COMPONENT_DIRS ../components ../app)` が `../components` を
+  コンポーネントコンテナとして登録するので**自動検出**（編集不要）。
   `PRIV_REQUIRES` は `esp_hw_support`（seed 乱数）/ `freertos`（ロック・タスク）/ `esp_wifi` /
   `esp_netif` / `nvs_flash`（WiFi transport）。SHA-256 は in-tree なので mbedtls 不要。
-- **simulator**: `simulator/CMakeLists.txt` の `SIMULATOR_COMPONENTS` に `dokan` を登録済み。
+- **simulator**: `simulator/CMakeLists.txt` の
+  `devkit_simulator(COMPONENT_DIRS ...)` に `dokan` を登録済み。
   `dokan_sim.c` と `dokan_os.h` の host 分岐は `ESP_PLATFORM` 未定義で有効、WiFi/device 専用は
   `#ifdef ESP_PLATFORM` で囲う（host ビルドで `dokan_wifi.c` は空 TU）。
 - `dokan.h` を include する `app` は `REQUIRES dokan` を持つ。

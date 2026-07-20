@@ -11,7 +11,16 @@ hit new ones.
   just the uncommitted-changes notice — harmless.
 - **`esp-devkit/` is a git submodule** (separate repo). Edits under it are commits
   to *that* repo, not NameCardKnot — commit/push there, then bump the submodule
-  pointer here.
+  pointer here. The root flake also locks the local submodule input by commit;
+  after a bump run `nix flake update esp-devkit` or `nix develop` will keep using
+  the old devkit toolchain definition.
+- **Use `esp-devkit/devkit.cmake` from both build roots.** Device wrappers call
+  `devkit_idf_init(UI_FRAMEWORK COMPONENT_DIRS ...)`, while the host wrapper calls
+  `devkit_simulator_init()` before its literal `project()` and
+  `devkit_simulator(...)` after it. Device board selection belongs in
+  `sdkconfig.defaults` as `CONFIG_BSP_BOARD_*`, not in the wrapper CMake file.
+  Since `devkit_idf_init` trims to `COMPONENTS main`, `main` must declare
+  `PRIV_REQUIRES app` or the app/BSP graph (including BSP Kconfig) is omitted.
 - **Delete `build/` after editing any `CMakeLists.txt`.** `run.sh` only runs
   `cmake --fresh` when `build/` is missing, so it won't otherwise pick up build
   graph changes (new sources, new components).
@@ -101,17 +110,17 @@ hit new ones.
   work (`while (s_dma_busy) taskYIELD()` + `esp_rom_delay_us`) at priority 5; a
   same-core task at lower priority (e.g. LVGL at 4) gets **zero CPU for the whole
   refresh**, so a tap during a refresh is missed if touch is only polled from the
-  LVGL `read_cb`. The seam: set `bsp_config.touch.task_priority` (above the EPD
-  task) so the **GT911 reader task** samples the chip independently and *pushes*
+  LVGL `read_cb`. The seam: set `bsp_config.dispatch.task_priority` (above the EPD
+  task) so the **shared BSP dispatch task** samples the chip independently and
+  *pushes*
   each sample to the app's `bsp_touch_set_event_cb` the moment it arrives (display
-  space; count 0 = release). The driver does **not** cache — the app's callback
-  owns that policy (NameCardKnot caches the coord under a mutex and latches the
-  press edge so a brief tap mid-refresh still clicks once the UI core is free).
-  `paper` (IT8951E, synchronous, no refresh task) can leave `bsp_config.touch`
-  zeroed and just `bsp_touch_read`. The callback also fires on the **simulator**
-  (`sdl_panel` emits it from its input pump), so the app's touch path is identical
-  on both targets. (The EPD engine itself is device-only — the sim replays no
-  waveform.)
+  space; count 0 = release). The BSP caches only the latest snapshot; a release
+  can still overwrite a brief press before LVGL reads it. NameCardKnot therefore
+  caches the coord under a mutex and latches the press edge in its callback, so a
+  tap mid-refresh still clicks once the UI core is free. On the **simulator** the
+  same dispatch task polls the mouse snapshot and fires the callback, so the app's
+  touch path is identical on both targets. (The EPD engine itself is device-only —
+  the sim replays no waveform.)
 - **Don't permanently `esp_partition_mmap` a big region on the original ESP32.**
   Its read-only data (DROM) mmap window is ~4MB and the app's `.rodata` (fonts/icons,
   ~1.9MB here) already lives there. A persistent 2MB map (the first My Card cut did
@@ -132,8 +141,8 @@ hit new ones.
   1-byte-per-pixel SDL texture.
 - **SDL/Cocoa is main-thread-only on macOS.** All rendering is deferred:
   draws/flushes/refreshes only mark dirty, and `sdl_panel_present()` (main thread)
-  does the SDL render. Likewise `bsp_touch_read` (background task) must not call
-  SDL — it only copies a snapshot the main thread maintains in
+  does the SDL render. Likewise the dispatch task's touch poll must not call SDL —
+  it only copies a snapshot the main thread maintains in
   `sdl_panel_pump_input()`.
 
 ### HotKnot (`bsp_hotknot_*`, GT911)
@@ -147,18 +156,17 @@ hit new ones.
   this is a Paper-family constraint, not a HotKnot limitation. A board that wires
   RESET + an output-capable INT (e.g. Tab5) recovers fully. The recovery path is
   capability-driven, so don't assume reset is impossible.
-- **The reader task is mandatory and drives the whole session.** `bsp_hotknot_begin`
-  returns `ESP_ERR_INVALID_STATE` without it (`bsp_config.touch.task_priority` must
-  be > 0). Pair detection, FW load, and receive-polling all run as a session step
-  installed on that one task — the chip can't serve touch and HotKnot at once, so
-  there is a single I2C owner, lock, and task.
-- **Events fire on the reader task, not the UI thread.** The `bsp_hotknot_event_cb_t`
+- **The shared dispatch task drives the whole session.** Pair detection, FW load,
+  and receive-polling run as a session step on the task that also polls touch —
+  the chip can't serve touch and HotKnot at once, so there is a single I2C owner,
+  lock, and task.
+- **Events fire on the dispatch task, not the UI thread.** The `bsp_hotknot_event_cb_t`
   runs off the LVGL/app context; marshal to it (`lv_async_call`) and keep the cb
   short. `RECEIVED` `data` points at the task's buffer — valid only during the
   callback, so copy it before returning.
 - **Touch is alive only through PAIRED.** From `PAIRED` (FW load) until
   `bsp_hotknot_end()` the chip's main firmware isn't running, so `bsp_touch_read`
-  / the reader task report nothing. Don't expect taps during data exchange.
+  / the dispatch task report nothing. Don't expect taps during data exchange.
 - **The two ends must `begin()` with opposite roles** (`SLAVE` vs `MASTER`) — the
   approach command differs (0x20/0x21) and same-role terminals won't pair. Which
   side sends after `READY` is independent of role (either may `bsp_hotknot_send`).

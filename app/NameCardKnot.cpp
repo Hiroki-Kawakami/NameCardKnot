@@ -302,8 +302,8 @@ void app_entry() {
     bsp_config_t bsp_config = {};
     bsp_config.epd.task_priority = 5;
     bsp_config.epd.task_affinity = 1;
-    bsp_config.touch.task_priority = 6;
-    bsp_config.touch.task_affinity = 1;
+    bsp_config.dispatch.task_priority = 6;
+    bsp_config.dispatch.task_affinity = 1;
     bsp_init(&bsp_config);
     cardstore::mycard().mount();
     rtc_sync_system_time();

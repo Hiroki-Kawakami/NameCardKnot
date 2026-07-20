@@ -411,7 +411,7 @@ device は `../components` コンテナで自動検出、host は自前テスト
 `inc/namecard_pdf.hpp` 公開 API（`parse_buffer`/`open_file`/`read_asset`/
 `write_share_pdf`/`parse_name_glyphs`/`rle_decode`/`crc32`）、`src/namecard_pdf.cpp`。
 **app に結線済み**：`app/CMakeLists.txt` の `REQUIRES`、`simulator/CMakeLists.txt` の
-`SIMULATOR_COMPONENTS` に追加。ブラウザは `app/NameCardData`（`FileLoader` 実装）経由で
+`devkit_simulator(COMPONENT_DIRS ...)` に追加。ブラウザは `app/NameCardData`（`FileLoader` 実装）経由で
 `.mnc.pdf` を開き、埋め込み表示 JPEG を `imgproc::decode_file_async(..., offset, length)`
 で部分範囲デコードする。`name_glyphs`→`lv_font` アダプタは app 側に実装済み
 （`app/lv_glyph_font.hpp`：blob を実行時 `lv_font_t` に変換し A8 マスク展開。

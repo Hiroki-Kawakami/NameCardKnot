@@ -1,94 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-include(FetchContent)
-
-set(CMAKE_C_COMPILER gcc)
-set(CMAKE_CXX_COMPILER g++)
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_C_COMPILER_LAUNCHER ccache)
-set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-
+include(${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/devkit.cmake)
+devkit_simulator_init()
 project(simulator C CXX)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# ---------------------------------------------------------------------------
-# Host dependencies
-# ---------------------------------------------------------------------------
-find_package(SDL2 REQUIRED)
-find_package(CJSON REQUIRED)
-find_package(Threads REQUIRED)   # host FreeRTOS API (idf_compat) is built on pthreads
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(JPEG REQUIRED IMPORTED_TARGET libjpeg)
-pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
-
-# ---------------------------------------------------------------------------
-# Executable
-# ---------------------------------------------------------------------------
-add_executable(simulator)
-target_compile_definitions(simulator PRIVATE
-    SDL_DISABLE_ARM_NEON_H
-    SDL_MAIN_HANDLED)
-target_link_libraries(simulator SDL2::SDL2 cjson Threads::Threads PkgConfig::JPEG PkgConfig::ZLIB ${CMAKE_DL_LIBS})
-
-# Initial host-view rotation of the SDL window (r/l keys change it at runtime).
-# Override at configure time: -DSIM_DEFAULT_ROTATION=90 (allowed: 0/90/180/270).
-set(SIM_DEFAULT_ROTATION 90 CACHE STRING "Initial SDL simulator window rotation (0/90/180/270)")
-target_compile_definitions(simulator PRIVATE SDL_PANEL_DEFAULT_ROTATION=${SIM_DEFAULT_ROTATION})
-
-# The executable's own entry.
-target_sources(simulator PRIVATE
-    main/main.cpp)
-target_include_directories(simulator PRIVATE main)
-
-# ---------------------------------------------------------------------------
-# Components (idf_component_register shim)
-# ---------------------------------------------------------------------------
-# Both the simulator-only layer (idf_compat) and the shared components
-# (../components/*, ../app) describe themselves with the ESP-IDF
-# idf_component_register() call in their own CMakeLists.txt. On device that is
-# the real IDF function; here we shim it to fold the component's sources /
-# include dirs straight into the `simulator` executable.
-#
-# REQUIRES are intentionally ignored: everything links into a single binary so
-# include dirs are global, and IDF-only requirements (esp_lvgl_port, driver,
-# nvs_flash, ...) simply have no host counterpart.
-function(idf_component_register)
-    cmake_parse_arguments(C "" ""
-        "SRCS;INCLUDE_DIRS;PRIV_INCLUDE_DIRS;REQUIRES;PRIV_REQUIRES;EMBED_FILES;EMBED_TXTFILES"
-        ${ARGN})
-    foreach(src ${C_SRCS})
-        if(NOT IS_ABSOLUTE "${src}")
-            set(src "${CMAKE_CURRENT_SOURCE_DIR}/${src}")
-        endif()
-        target_sources(simulator PRIVATE "${src}")
-    endforeach()
-    foreach(dir ${C_INCLUDE_DIRS} ${C_PRIV_INCLUDE_DIRS})
-        if(NOT IS_ABSOLUTE "${dir}")
-            set(dir "${CMAKE_CURRENT_SOURCE_DIR}/${dir}")
-        endif()
-        target_include_directories(simulator PRIVATE "${dir}")
-    endforeach()
-endfunction()
-
-# No-op stub for the other IDF component-CMake call shared components may use.
-function(idf_component_set_property)
-endfunction()
-
-# Simulator components.
-set(UI_FRAMEWORK_LV_CONF_DIR ${CMAKE_CURRENT_SOURCE_DIR}/main)
-set(SIMULATOR_COMPONENTS
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/idf_compat
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/sim_harness
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/bsp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/ui_framework
-    ${CMAKE_CURRENT_SOURCE_DIR}/../esp-devkit/libs/image_framework
-    ${CMAKE_CURRENT_SOURCE_DIR}/../components/image_processor
-    ${CMAKE_CURRENT_SOURCE_DIR}/../components/namecard_pdf
-    ${CMAKE_CURRENT_SOURCE_DIR}/../components/dokan
-    ${CMAKE_CURRENT_SOURCE_DIR}/../app)
-foreach(comp ${SIMULATOR_COMPONENTS})
-    get_filename_component(name "${comp}" NAME)
-    add_subdirectory("${comp}" "${CMAKE_BINARY_DIR}/components/${name}")
-endforeach()
+devkit_simulator(
+    BOARD paper_s3
+    LV_CONF_DIR main
+    DEFAULT_ROTATION 90
+    COMPONENT_DIRS
+        ../components/image_processor
+        ../components/namecard_pdf
+        ../components/dokan
+        ../app)

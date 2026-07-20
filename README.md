@@ -10,7 +10,7 @@ with **LVGL** through the `ui_framework` port abstraction.
 
 ## Build environment
 
-The ESP-IDF (v5.4.3) toolchain and the host-simulator tools (cmake, ninja, gcc,
+The ESP-IDF (v6.0.2) toolchain and the host-simulator tools (cmake, ninja, gcc,
 SDL2, libjpeg, cjson) all come from the Nix flake. Run build commands through
 `nix develop -c <cmd>` (or from inside a `nix develop` shell); direnv users get
 the shell automatically via `.envrc`.

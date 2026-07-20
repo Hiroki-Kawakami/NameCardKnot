@@ -13,10 +13,10 @@ async background task; in-flight waveforms are never interrupted — conflicting
 draws block), with a `BSP_EPD_MODE_ALL` flag for ghost-clear area flushes and a
 separate `bsp_display_clear()`; on `paper` the IT8951E TCON is driven over SPI
 (synchronous load-image + display, no async task). Both use the in-tree `gt911`
-I2C touch driver: `bsp_touch_read` polls by default, or the app spawns a
-decoupled reader task (`bsp_config.touch`) that **pushes** each sample to
-`bsp_touch_set_event_cb` so taps survive a starved UI core — the app caches/latches
-the pushed coords itself (see [`docs/gotchas.md`](docs/gotchas.md)). **LVGL is
+I2C touch driver: the BSP's shared dispatch task polls it and **pushes** each
+sample to `bsp_touch_set_event_cb` so taps survive a starved UI core. The app
+sets that task through `bsp_config.dispatch` and caches/latches the pushed coords
+itself (see [`docs/gotchas.md`](docs/gotchas.md)). **LVGL is
 wired up** via the `ui_framework` LVGL port abstraction + an app-side BSP↔LVGL
 binding, and **SD-card access is in** (`bsp_sd_*`: FAT-over-SDSPI on device, a
 host-directory redirect in the simulator). The name-card image path uses
@@ -42,7 +42,7 @@ app is a small screen set (home, SD file browser, name card).
 
 ## Build environment
 
-The ESP-IDF (v5.4.3) toolchain and the host-simulator tools (cmake, ninja, gcc,
+The ESP-IDF (v6.0.2) toolchain and the host-simulator tools (cmake, ninja, gcc,
 SDL2, libjpeg, cjson) all come from the Nix flake. **Always run build commands
 through `nix develop -c <cmd>`** (or from inside a `nix develop` shell) — never
 invoke `idf.py` / `cmake` directly. `.envrc` is `use flake`, so direnv users get
@@ -88,12 +88,12 @@ simulator/            # SIMULATOR build root
   main/main.cpp       #   host entry: app_entry() then lvgl_sim_loop() (LVGL present loop + sim-harness frame stepping)
   verify/             #   sim-harness scripts; captures land in verify/out/ (gitignored)
 esp32s3/              # DEVICE build root for the paper_s3 board (ESP-IDF; build artifacts gitignored)
-esp32/                # DEVICE build root for the paper board (mirrors esp32s3/; sets BSP_BOARD=paper)
+esp32/                # DEVICE build root for the paper board (selected in sdkconfig.defaults)
 esp-devkit/           # SUBMODULE — reusable devkit (separate repo)
   bsp/                #   board support (bsp_*)
     inc/              #     public API: bsp.h, bsp_types.h
     inc_private/      #     internal vtables: bsp_display.h, bsp_touch.h
-    src/              #     shared dispatch: bsp_display.c, bsp_touch.c
+    src/              #     shared vtable dispatch + touch/button/audio dispatch task
     devices/          #     DEVICE chip drivers: ed047tc1 (i80 EPD descriptor) + it8951e (SPI EPD: driver + it8951e_epd bsp_display provider) + gt911 (I2C touch) + bm8563 (I2C RTC)
     driver/epd/       #     ESP32-S3 low-level: epd_ll.c (i80 bus + CKV/SPV/LE scan + the refresh engine) + epd_waveform.h (SoC-free per-pixel core, host-tested) + epd_waveform_lut.h (LUT authoring macros) + test/
     driver/pwm_buzzer/#     generic LEDC passive-buzzer bsp_audio provider (TONE-only)
@@ -117,44 +117,41 @@ target-only entry → that target's build root.
 
 ### Component wiring
 
-Components are self-describing via `idf_component_register()`. On **device**,
-ESP-IDF consumes it directly. On the **simulator**, `simulator/CMakeLists.txt`
-defines a shim that folds each component's `SRCS`/`INCLUDE_DIRS` straight into the
-one `simulator` executable (so includes are effectively global; `REQUIRES` are
-ignored). A component that differs per target branches on `ESP_PLATFORM` (set only
-under ESP-IDF) inside its own `CMakeLists.txt` — see `bsp/CMakeLists.txt`. New
-simulator component → add it to `SIMULATOR_COMPONENTS` in `simulator/CMakeLists.txt`.
-(`ui_framework` is the worked example of a component that *also* pulls a host
-library: its simulator branch `FetchContent`s LVGL and links it onto the
-`simulator` target directly — the shim only folds sources, not external targets.)
+Components are self-describing via `idf_component_register()`. Both build paths
+include `esp-devkit/devkit.cmake`; keep the top-level `project()` literal after
+the appropriate init macro because CMake pre-scans it when selecting a toolchain.
 
-On **device**, each build root (`esp32s3/CMakeLists.txt`, `esp32/CMakeLists.txt`)
-lists `../components` (a *container* — each subdir is a component, so new
-components there are auto-discovered, no edit needed), `../esp-devkit/bsp`,
-`../esp-devkit/ui_framework`, and `../esp-devkit/libs/image_framework` in
-`EXTRA_COMPONENT_DIRS` (`idf_compat`/`sim_harness` are host-only), and sets
-`BSP_BOARD` (a cache var, `paper_s3` / `paper`) *before* `project()` to pick the
-board. Any component that `#include`s `bsp.h` must name `bsp` in its `REQUIRES`
-(e.g. `app/CMakeLists.txt`, which also names `ui_framework` and `image_processor`).
-(`image_processor` + `image_framework` are both in `SIMULATOR_COMPONENTS` for the
-host build; `image_processor` names `image_framework` in its `PRIV_REQUIRES`. Its
-other device requirements are `esp_timer` for the `IMGPROC_PROFILE` stage timing
-and `freertos` for the `IMGPROC_ASYNC` `imgjob` task (`DecodeJob`); `image_framework`
-itself requires `heap` for `heap_caps_*` + `freertos` for `imgf_async` — the
-simulator gets FreeRTOS from `idf_compat`/pthreads, the host unit tests build the
-async path off.) The bsp component's per-target source list, include dirs, and
-`PRIV_REQUIRES` are *not* hard-coded in `bsp/CMakeLists.txt`: it `include()`s the
-selected board's `boards/<board>/board.cmake`, which fills `BOARD_DEVICE_SRCS` /
-`BOARD_DEVICE_PRIV_INCLUDE_DIRS` / `BOARD_DEVICE_PRIV_REQUIRES` (device) and
-`BOARD_SIM_SRCS` (simulator). Adding a board = a new `boards/<board>/` dir with a
-`board.cmake` + a build root that sets `BSP_BOARD`. Per board:
-- **paper_s3** (ED047TC1 i80 EPD): `esp_lcd` in `PRIV_REQUIRES`, `ed047tc1`/`driver`
-  in `PRIV_INCLUDE_DIRS`; SD on its own SPI2 bus (`paper_s3_sd.c`).
-- **paper** (IT8951E SPI EPD): `driver` (spi_master) + `esp_timer` in
-  `PRIV_REQUIRES`, `it8951e` in `PRIV_INCLUDE_DIRS`, *no* `esp_lcd`; `it8951e.c` is
-  the SPI TCON driver and `it8951e_epd.c` the `bsp_display_t` provider. The EPD and
-  microSD share one SPI bus that `paper.c` owns (`paper_config.h` pins), so
-  `paper_sd.c` only attaches/detaches the card device — it never inits/frees the bus.
+On **device**, each build root calls
+`devkit_idf_init(UI_FRAMEWORK COMPONENT_DIRS ../components ../app)`. The macro
+registers the devkit components and the app component container in
+`EXTRA_COMPONENT_DIRS`, then trims the build to `main`'s dependency graph. Board
+selection is Kconfig-backed: `esp32/sdkconfig.defaults` sets
+`CONFIG_BSP_BOARD_PAPER`, while `esp32s3/sdkconfig.defaults` sets
+`CONFIG_BSP_BOARD_PAPER_S3`. Any component that includes `bsp.h` must still name
+`bsp` in its `REQUIRES`; each target's `main` names `app` in `PRIV_REQUIRES` so
+the trimmed dependency graph reaches the application and its transitive deps.
+
+On the **simulator**, `devkit_simulator_init()` runs before the literal
+`project()`, then `devkit_simulator(...)` creates the executable, supplies the
+shared `idf_component_register()` shim, and adds all devkit components. App-local
+components remain explicit `COMPONENT_DIRS` arguments because `components/` is a
+container without its own `CMakeLists.txt`; add a new simulator component there.
+The shim folds sources/includes into one executable and ignores IDF-only
+`REQUIRES`. `ui_framework` still `FetchContent`s LVGL and links it directly.
+
+The bsp component gets its per-target source list, include dirs, requirements,
+and `BOARD_TARGET` from `boards/<board>/board.cmake`. The early IDF configure pass
+uses the union of requirements for boards matching `IDF_TARGET`; the real pass
+resolves the Kconfig-selected board. Adding a board requires its directory,
+`board.cmake`, Kconfig entry, and a target's sdkconfig selection. Per board:
+- **paper_s3** (ED047TC1 i80 EPD): `esp_lcd` plus the EPD driver; the generic
+  `sd_spi` provider manages its dedicated SPI2 bus.
+- **paper** (IT8951E SPI EPD): no `esp_lcd`; the generic `sd_spi` provider borrows
+  the SPI bus owned by `paper.c`, shared with the TCON.
+
+`image_processor` names `image_framework` in `PRIV_REQUIRES`, plus `esp_timer`
+for profiling and `freertos` for async decode. The simulator gets FreeRTOS from
+`idf_compat`/pthreads; the host unit tests build the async path off.
 
 Touch on both is the in-tree `gt911` driver (no managed dependency) — it adds the
 `gt911` dir to `PRIV_INCLUDE_DIRS` and relies on `driver` for `i2c_master`/`gpio`.
@@ -236,8 +233,8 @@ One SDL backend mimics all three panel families behind the same vtable, chosen b
 
 Presentation is deferred to the main thread (SDL/Cocoa is main-thread-only);
 `sdl_panel_present()` does the actual render each loop iteration. Touch is a
-mutex-guarded multi-touch snapshot (`bsp_touch_read` copies it on a background
-task; the main thread samples the mouse in `sdl_panel_pump_input()`). See
+mutex-guarded multi-touch snapshot: the main thread samples the mouse in
+`sdl_panel_pump_input()`, and the BSP dispatch task polls that snapshot. See
 [`docs/gotchas.md`](docs/gotchas.md) for the threading rules.
 
 The window is **resizable with an aspect-preserving letterbox**: `present` fits the
@@ -260,16 +257,14 @@ harness, so the simulator entry needs no wiring for those.
 
 ### SD card (`bsp_sd_*`)
 
-Outside the display/touch vtables: `bsp_sd_mount`/`bsp_sd_unmount`/`bsp_sd_is_mounted`
-(`bsp.h`), implemented per target with no vtable since there is one SD provider.
+`bsp_sd_mount`/`bsp_sd_unmount`/`bsp_sd_is_mounted` are the public seam. Device
+boards register a `bsp_sd_t` provider; the simulator implements the same calls as
+its host-directory redirect.
 
-- **device** (`boards/<board>/*_sd.c`): FAT over the SDSPI host. On `paper_s3` the
-  card has its own dedicated SPI2 bus (`paper_s3_sd.c` inits/frees it); on `paper`
-  it shares the IT8951E's SPI bus owned by `paper.c`, so `paper_sd.c` only
-  mounts/unmounts the card and never touches the bus. `config` NULL/zero fields
-  take the documented defaults (`max_files` 0→5, `max_freq_khz`
-  0→`SDMMC_FREQ_DEFAULT` (20MHz) — 40MHz over SPI fails to init some cards,
-  more so on `paper`'s EPD-shared bus).
+- **device** (`driver/sd_spi/`): FAT over SDSPI. `paper_s3` creates the provider
+  with a managed dedicated SPI2 bus; `paper` creates it with a borrowed bus owned
+  by `paper.c` and shared with IT8951E. `config` NULL/zero fields take provider
+  defaults (`max_files` 0→5, `max_freq_khz` 0→20MHz).
 - **simulator** (`simulator/sd_redirect.c`): "mounting" just maps the mount point
   onto a host directory (`SIMULATOR_SDCARD_PATH`, default `simulator/sdcard`).
   App code keeps using plain POSIX I/O — the file defines `open`/`fopen`/`opendir`/
@@ -316,9 +311,9 @@ no provider → `ESP_ERR_NOT_SUPPORTED`). The only provider is GT911:
 `gt911_hotknot_create()` binds to the active touch chip (`gt911_active_handle`,
 file-static) and the board registers it after touch. The callback-based public
 API (`bsp_hotknot_begin(role, cb)` / `send` / `end`, bsp.h) hides FW load, ACK,
-and chip status — the session state machine runs **on the touch reader task**
-(required; `begin` errors without it) via an installable session step
-(`gt911_internal.h`), so touch + HotKnot share one I2C owner/lock/task. Pairing,
+and chip status — the session state machine runs **on the shared BSP dispatch
+task** via an installable session step (`gt911_internal.h`), so touch + HotKnot
+share one I2C owner/lock/task. Pairing,
 ready, and received frames arrive as events. Board-specific SNR tuning lives in
 `gt911_config_t.hotknot` (set per board in `*_panel.c`), not driver macros. Touch
 recovery after a session is **capability-driven**: it needs a wired RESET +
@@ -333,7 +328,8 @@ behind the same vtable pattern (`bsp_audio_t` in `inc_private/bsp_audio.h`,
 dispatch in `src/bsp_audio.c`; calls outside the caps →
 `ESP_ERR_NOT_SUPPORTED`). The dispatch owns all policy: the volume curve
 (linear-in-dB, a fading software gain through the `audio_dsp` chain,
-`inc/audio_dsp.h`), the speaker route (ON/AUTO/OFF + headphone poll task),
+`inc/audio_dsp.h`), the speaker route (ON/AUTO/OFF + dispatch-driven headphone
+polling),
 click-free open/close sequencing, and the **tone fallback** — `bsp_audio_tone`
 works with `CAP_TONE` (hardware buzzer) *or* `CAP_PCM` (sine synthesized by a
 lazily-created task; `ESP_ERR_INVALID_STATE` while an app PCM stream is open).
@@ -644,8 +640,9 @@ display image + footer B — so the device makes a **share-only PDF by truncatin
 `base_total_length`** (byte copy, no re-serialization). The TS writer is the source
 of truth; the C++ parser is held to **byte-identical golden fixtures** (TS
 `gen-fixtures` → `manifest.h`). The reader is **wired into the app**: `app/` lists
-`namecard_pdf` in `REQUIRES`, the simulator in `SIMULATOR_COMPONENTS`, and the
-browser opens `.mnc.pdf` via `NameCardData` (see Screens above). Still LVGL-free
+`namecard_pdf` in `REQUIRES`, the simulator in
+`devkit_simulator(COMPONENT_DIRS ...)`, and the browser opens `.mnc.pdf` via
+`NameCardData` (see Screens above). Still LVGL-free
 itself; the `name_glyphs`→`lv_font` adapter is now done app-side
 (`app/lv_glyph_font.hpp`, used by `NameCardScreen`'s name font fallback chain).
 Still to do — the editor's canvas glyph rasterization (rare-kanji names), and a
