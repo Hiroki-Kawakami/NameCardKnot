@@ -653,6 +653,12 @@ Still to do — the editor's canvas glyph rasterization (rare-kanji names), and 
 layouts, file locations, and test commands:
 [`docs/namecard_pdf.md`](docs/namecard_pdf.md).
 
+The editor is published to GitHub Pages by
+`.github/workflows/editor-pages.yml`: changes under `editor/` on `main` run
+`npm ci`, the Vitest suite, and the production build, then deploy `editor/dist/`
+through the Pages artifact workflow. The repository's Pages source must be set
+to **GitHub Actions** before the first deployment.
+
 ## Verification & gotchas
 
 - **Simulator UI verification** (sim harness, script commands, the DI model):

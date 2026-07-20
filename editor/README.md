@@ -39,4 +39,6 @@ npm run preview    # serve the built dist/
 ## GitHub Pages
 
 `vite.config.ts` sets `base: "./"` so the build works under any Pages sub-path.
-Publish the `dist/` directory produced by `npm run build`.
+`.github/workflows/editor-pages.yml` runs the tests, builds the editor, and
+publishes `dist/` when an editor change reaches `main`. It can also be started
+manually from the Actions tab.
