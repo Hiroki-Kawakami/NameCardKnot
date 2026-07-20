@@ -13,6 +13,8 @@
 #include "Strings.hpp"
 #include "UiFont.hpp"
 #include "resources.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <cstring>
 
 // ---- Editable about-page content ------------------------------------------
@@ -210,6 +212,9 @@ void SettingsScreen::build() {
     });
     settings_button_create(contents_, LUCIDE_FLIP_VERTICAL, S().screen_orientation, [](lv_event_t*) {
         settings::set_display_flip(!settings::display_flip());
+        lv_refr_now(NULL);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        bsp_power_hw_reset();
         bsp_power_restart();
     });
     settings_button_create(contents_, LUCIDE_SCALE, S().acknowledgements, [](lv_event_t*) {

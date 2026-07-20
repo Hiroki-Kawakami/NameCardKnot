@@ -10,6 +10,8 @@
 #include "Strings.hpp"
 #include "UiFont.hpp"
 #include "bsp.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 LanguageSelectScreen::LanguageSelectScreen(Mode mode, std::function<void()> on_continue)
     : mode_(mode), on_continue_(std::move(on_continue)) {}
@@ -56,6 +58,10 @@ void LanguageSelectScreen::onSelect(const std::string &code) {
         return;
     }
     settings::set_language(code);
+
+    lv_refr_now(NULL);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    bsp_power_hw_reset();
     bsp_power_restart();
 }
 
